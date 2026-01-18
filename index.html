@@ -25,17 +25,27 @@
       background: #e2e8f0;
       border-radius: 10px;
     }
+    /* 動畫效果 */
+    @keyframes bounceIn {
+      0% { opacity: 0; transform: scale(0.9); }
+      50% { opacity: 1; transform: scale(1.02); }
+      100% { transform: scale(1); }
+    }
+    .animate-bounce-in {
+      animation: bounceIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    }
   </style>
-  <!-- 引入 Babel 用於瀏覽器編譯 TSX -->
+  
+  <!-- Babel 用於瀏覽器編譯 TSX -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   
+  <!-- Import Map: 修正版本衝突，只使用 React 18 和 Firebase 10 -->
   <script type="importmap">
 {
   "imports": {
     "react": "https://esm.sh/react@18.2.0",
     "react-dom": "https://esm.sh/react-dom@18.2.0",
     "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-    "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime",
     "firebase/app": "https://esm.sh/firebase@10.12.0/app",
     "firebase/auth": "https://esm.sh/firebase@10.12.0/auth",
     "firebase/firestore": "https://esm.sh/firebase@10.12.0/firestore",
@@ -49,18 +59,948 @@
 </head>
 <body>
   <div id="root"></div>
-  
-  <!-- 將 index.tsx 的邏輯直接寫在這裡，避免 Netlify 找不到外部檔案 -->
+
+  <!-- 主程式碼：整合所有組件 -->
   <script type="text/babel" data-type="module" data-presets="react,typescript">
-    import React from 'react';
+    import React, { useState, useEffect } from 'react';
     import ReactDOM from 'react-dom/client';
-    import App from './App.tsx';
+    
+    // --- 1. CONSTANTS & TYPES ---
+    const STORAGE_KEY = 'fittrack_logs_v1';
+    
+    const CATEGORIES = [
+      { 
+        value: 'Gym', 
+        subcategories: ['功能性訓練', '重量訓練', '帶氧運動', 'HIIT', '伸展'], 
+        color: 'bg-blue-500',
+        icon: '💪'
+      },
+      { 
+        value: '羽毛球', 
+        subcategories: ['友誼賽', '技術練習', '正式比賽', '單打', '雙打'], 
+        color: 'bg-green-500',
+        icon: '🏸'
+      },
+      { 
+        value: '排球', 
+        subcategories: ['打比賽', '隊訓', '街場', '技術訓練'], 
+        color: 'bg-orange-500',
+        icon: '🏐'
+      },
+      { 
+        value: '跑步', 
+        subcategories: ['慢跑', '長跑', '衝刺練習', '馬拉松訓練'], 
+        color: 'bg-red-500',
+        icon: '🏃'
+      },
+      { 
+        value: '游泳', 
+        subcategories: ['自由式', '蛙式', '蝶式', '背泳'], 
+        color: 'bg-cyan-500',
+        icon: '🏊'
+      },
+      { 
+        value: '瑜伽', 
+        subcategories: ['哈達瑜伽', '流瑜伽', '陰瑜伽', '普拉提'], 
+        color: 'bg-purple-500',
+        icon: '🧘'
+      },
+      { 
+        value: '其他', 
+        subcategories: ['自定義項目'], 
+        color: 'bg-gray-500',
+        icon: '✨'
+      },
+    ];
 
+    // --- 2. SERVICE ---
+    const firebaseConfig = {
+      apiKey: "AIzaSyCxrAn6x69Ki4c-MTrpBhyGnX2XFKW2f4k",
+      authDomain: "fittracker-chunlam252.firebaseapp.com",
+      projectId: "fittracker-chunlam252",
+      storageBucket: "fittracker-chunlam252.firebasestorage.app",
+      messagingSenderId: "629880531604",
+      appId: "1:629880531604:web:76fd44292a79fbdad86281",
+      measurementId: "G-Z40MK7PG39"
+    };
+
+    let db = null;
+    let auth = null;
+    let googleProvider = null;
+
+    const storageService = {
+      init: async (onUserChange) => {
+        const timeoutPromise = new Promise((resolve) => {
+          setTimeout(() => resolve('timeout'), 4000);
+        });
+
+        const initPromise = (async () => {
+          try {
+            const { initializeApp } = await import('firebase/app');
+            const { getFirestore } = await import('firebase/firestore');
+            const { getAuth, onAuthStateChanged, GoogleAuthProvider } = await import('firebase/auth');
+            
+            // 確保只初始化一次
+            let app;
+            try {
+               // 嘗試獲取已存在的 App，避免重複初始化
+               const { getApp } = await import('firebase/app');
+               app = getApp();
+            } catch (e) {
+               app = initializeApp(firebaseConfig);
+            }
+            
+            db = getFirestore(app);
+            auth = getAuth(app);
+            googleProvider = new GoogleAuthProvider();
+
+            onAuthStateChanged(auth, (user) => {
+              onUserChange(user);
+            });
+            return 'success';
+          } catch (e) {
+            console.error("Firebase init error:", e);
+            return 'error';
+          }
+        })();
+
+        const result = await Promise.race([initPromise, timeoutPromise]);
+        
+        if (result !== 'success') {
+          console.warn("Firebase initialization timed out or failed. Running in offline mode.");
+          onUserChange(null);
+        }
+      },
+
+      login: async () => {
+        if (!auth || !googleProvider) return;
+        const { signInWithPopup } = await import('firebase/auth');
+        try {
+          await signInWithPopup(auth, googleProvider);
+        } catch (e) {
+          console.error(e);
+        }
+      },
+
+      logout: async () => {
+        if (!auth) return;
+        const { signOut } = await import('firebase/auth');
+        await signOut(auth);
+      },
+
+      saveLogs: async (logs, userId) => {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(logs));
+        if (db && userId) {
+          try {
+            const { doc, setDoc } = await import('firebase/firestore');
+            await setDoc(doc(db, "users", userId), { 
+              logs, 
+              updatedAt: new Date().toISOString() 
+            }, { merge: true });
+          } catch (e) {
+            console.error("Auto-upload failed:", e);
+          }
+        }
+      },
+
+      getLocalLogs: () => {
+        const data = localStorage.getItem(STORAGE_KEY);
+        return data ? JSON.parse(data) : [];
+      }
+    };
+
+    // --- 3. COMPONENTS ---
+
+    const Layout = ({ children, activeView, onViewChange, user, onLoginToggle, statusText }) => {
+      return (
+        <div className="flex flex-col min-h-screen max-w-md mx-auto bg-white shadow-xl relative border-x border-slate-100">
+          <header className="px-6 py-5 bg-white/80 backdrop-blur-md border-b sticky top-0 z-30 flex justify-between items-center">
+            <div>
+              <h1 className="text-xl font-bold text-slate-800 tracking-tight">FitTrack</h1>
+              <div className="flex items-center gap-1.5 transition-all">
+                <div className={`w-1.5 h-1.5 rounded-full ${statusText?.includes('同步') ? 'bg-green-500' : statusText?.includes('儲存') ? 'bg-yellow-500' : 'bg-slate-300'}`}></div>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                  {statusText || '就緒'}
+                </p>
+              </div>
+            </div>
+            
+            <button 
+              onClick={onLoginToggle}
+              className={`px-4 py-2 rounded-xl border flex items-center gap-2 transition-all active:scale-95 ${user ? 'bg-slate-50 border-slate-100 text-slate-600' : 'bg-slate-900 border-slate-900 text-white shadow-lg'}`}
+            >
+              {user && user.photoURL ? (
+                <img src={user.photoURL} alt="User" className="w-5 h-5 rounded-full ring-2 ring-white" />
+              ) : (
+                <span className="text-sm">☁️</span>
+              )}
+              <span className="text-xs font-bold">{user ? '登出' : '登入備份'}</span>
+            </button>
+          </header>
+
+          <main className="flex-1 overflow-y-auto pb-24 custom-scrollbar bg-slate-50/50">
+            {children}
+          </main>
+
+          <nav className="fixed bottom-0 w-full max-w-md bg-white/90 backdrop-blur-md border-t flex justify-around items-center py-3 px-2 shadow-[0_-8px_30px_rgb(0,0,0,0.04)] z-30">
+            <button onClick={() => onViewChange('dashboard')} className={`flex flex-col items-center gap-1 flex-1 transition-colors ${activeView === 'dashboard' ? 'text-blue-600' : 'text-slate-400'}`}>
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
+              <span className="text-[10px] font-bold">主頁</span>
+            </button>
+            <button onClick={() => onViewChange('trends')} className={`flex flex-col items-center gap-1 flex-1 transition-colors ${activeView === 'trends' ? 'text-blue-600' : 'text-slate-400'}`}>
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+              <span className="text-[10px] font-bold">趨勢</span>
+            </button>
+            <button onClick={() => onViewChange('add')} className="flex flex-col items-center -mt-8 group">
+              <div className="w-14 h-14 bg-blue-600 rounded-full flex items-center justify-center text-white shadow-xl shadow-blue-200 border-4 border-white group-active:scale-90 transition-transform">
+                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+              </div>
+              <span className="text-[10px] font-bold text-blue-600 mt-1">紀錄</span>
+            </button>
+            <button onClick={() => onViewChange('calendar')} className={`flex flex-col items-center gap-1 flex-1 transition-colors ${activeView === 'calendar' ? 'text-blue-600' : 'text-slate-400'}`}>
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+              <span className="text-[10px] font-bold">日曆</span>
+            </button>
+          </nav>
+        </div>
+      );
+    };
+
+    const Dashboard = ({ logs, onEdit, onDelete, onViewChange }) => {
+      const today = new Date();
+      const currentYear = today.getFullYear();
+      
+      const sortedLogs = [...logs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+      const getDaysSince = (dateStr) => {
+        const date = new Date(dateStr);
+        const diffTime = Math.abs(today.getTime() - date.getTime());
+        return Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      };
+
+      const lastWorkout = sortedLogs[0];
+      const daysSinceLast = lastWorkout ? getDaysSince(lastWorkout.date) : null;
+      const uniqueDaysThisYear = new Set(logs.filter(log => new Date(log.date).getFullYear() === currentYear).map(log => log.date.split('T')[0])).size;
+
+      const importantCategories = ['Gym', '羽毛球', '排球'];
+
+      return (
+        <div className="p-6 space-y-6 pb-32">
+          {/* Hero Section */}
+          <section className="bg-slate-900 rounded-[2rem] p-6 shadow-lg text-white relative">
+            <div className="grid grid-cols-2 gap-6">
+              <div>
+                <p className="text-slate-400 text-[10px] font-black uppercase mb-1">對上一次運動</p>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-4xl font-black">{daysSinceLast === null ? '--' : daysSinceLast}</span>
+                  <span className="text-xs font-bold text-slate-500">DAYS</span>
+                </div>
+              </div>
+              <div className="border-l border-white/10 pl-6">
+                <p className="text-slate-400 text-[10px] font-black uppercase mb-1">今年運動天數</p>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-4xl font-black text-blue-400">{uniqueDaysThisYear}</span>
+                  <span className="text-xs font-bold text-slate-500">DAYS</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Exercise Alarms */}
+          <section>
+            <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-4">運動警報</h3>
+            <div className="grid grid-cols-3 gap-3">
+              {importantCategories.map(cat => {
+                const config = CATEGORIES.find(c => c.value === cat);
+                const last = sortedLogs.find(l => l.category === cat);
+                const days = last ? getDaysSince(last.date) : -1;
+                return (
+                  <div key={cat} className="bg-white p-3 rounded-2xl border border-slate-100 flex flex-col items-center">
+                    <span className="text-xl mb-1">{config?.icon}</span>
+                    <span className="text-[9px] font-bold text-slate-400">{cat}</span>
+                    <span className={`text-[10px] font-black ${days === 0 ? 'text-green-500' : days > 3 ? 'text-red-500' : 'text-slate-700'}`}>
+                      {days === -1 ? '未有紀錄' : days === 0 ? '今天已做' : `${days}天前`}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* Recent Activity */}
+          <section>
+            <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-4">最近紀錄</h3>
+            <div className="space-y-4">
+              {sortedLogs.length === 0 ? (
+                <div className="text-center py-10 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
+                  <p className="text-slate-400 text-sm font-medium">仲未有紀錄喎，快啲加返個！</p>
+                </div>
+              ) : (
+                sortedLogs.slice(0, 5).map(log => {
+                  const catConfig = CATEGORIES.find(c => c.value === log.category);
+                  return (
+                    <div key={log.id} className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
+                      <div className={`w-12 h-12 rounded-2xl ${catConfig?.color} flex items-center justify-center text-xl text-white flex-shrink-0 shadow-inner`}>
+                        {catConfig?.icon}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-bold text-slate-800 truncate text-sm">{log.subcategory}</h4>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">
+                          {new Date(log.date).toLocaleDateString('zh-HK')} • {log.durationMinutes / 60}h
+                        </p>
+                      </div>
+                      <div className="flex gap-1">
+                        <button onClick={() => onEdit(log)} className="p-2 text-slate-300 hover:text-blue-600"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+            {sortedLogs.length > 5 && (
+              <button 
+                onClick={() => onViewChange('calendar')}
+                className="w-full py-3 mt-4 text-xs font-bold text-slate-400 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors"
+              >
+                查看全部紀錄
+              </button>
+            )}
+          </section>
+        </div>
+      );
+    };
+
+    const TrendsView = ({ logs }) => {
+      const today = new Date();
+      
+      const last7Days = Array.from({ length: 7 }).map((_, i) => {
+        const d = new Date();
+        d.setDate(today.getDate() - (6 - i));
+        const dateStr = d.toISOString().split('T')[0];
+        const dayLogs = logs.filter(l => l.date.split('T')[0] === dateStr);
+        const totalMinutes = dayLogs.reduce((acc, curr) => acc + curr.durationMinutes, 0);
+        return {
+          day: d.toLocaleDateString('zh-HK', { weekday: 'short' }),
+          hours: totalMinutes / 60,
+          date: dateStr
+        };
+      });
+
+      const maxHours = Math.max(...last7Days.map(d => d.hours), 1);
+
+      const last30Days = new Date();
+      last30Days.setDate(today.getDate() - 30);
+      const recentLogs = logs.filter(l => new Date(l.date) >= last30Days);
+      
+      const categoryStats = CATEGORIES.map(cat => {
+        const count = recentLogs.filter(l => l.category === cat.value).length;
+        return { ...cat, count };
+      }).sort((a, b) => b.count - a.count);
+
+      const totalLogs = recentLogs.length || 1;
+
+      const last10Logs = [...logs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 10);
+      const avgEffort = last10Logs.length ? (last10Logs.reduce((acc, curr) => acc + (curr.effort || 0), 0) / last10Logs.length).toFixed(1) : '0.0';
+      const avgPerf = last10Logs.length ? (last10Logs.reduce((acc, curr) => acc + (curr.performance || 0), 0) / last10Logs.length).toFixed(1) : '0.0';
+
+      return (
+        <div className="p-6 space-y-8 pb-32">
+          <section>
+            <h3 className="text-lg font-black text-slate-800 mb-6 flex items-center gap-2">
+              每週活動量 <span className="text-blue-500">📊</span>
+            </h3>
+            <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
+              <div className="flex items-end justify-between h-48 gap-2">
+                {last7Days.map((data, i) => {
+                  const heightPercentage = (data.hours / maxHours) * 100;
+                  const isToday = i === 6;
+                  return (
+                    <div key={data.date} className="flex-1 flex flex-col items-center gap-2 group">
+                      <div className="relative w-full flex items-end justify-center h-full">
+                        <div 
+                          style={{ height: `${Math.max(heightPercentage, 5)}%` }}
+                          className={`w-full max-w-[20px] rounded-full transition-all duration-500 ease-out ${isToday ? 'bg-blue-600 shadow-lg shadow-blue-200' : 'bg-slate-100 group-hover:bg-slate-200'}`}
+                        />
+                        {data.hours > 0 && (
+                          <span className="absolute -top-6 text-[10px] font-black text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {data.hours}h
+                          </span>
+                        )}
+                      </div>
+                      <span className={`text-[10px] font-bold ${isToday ? 'text-blue-600' : 'text-slate-400'}`}>
+                        {data.day}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-6 pt-6 border-t border-slate-50 flex justify-between items-center">
+                 <div>
+                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">週總時數</p>
+                   <p className="text-xl font-black text-slate-800">
+                     {last7Days.reduce((acc, curr) => acc + curr.hours, 0).toFixed(1)} <span className="text-xs text-slate-400">Hours</span>
+                   </p>
+                 </div>
+                 <div className="text-right">
+                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">日平均</p>
+                   <p className="text-xl font-black text-slate-800">
+                     {(last7Days.reduce((acc, curr) => acc + curr.hours, 0) / 7).toFixed(1)} <span className="text-xs text-slate-400">Hours</span>
+                   </p>
+                 </div>
+              </div>
+            </div>
+          </section>
+
+          <section>
+            <h3 className="text-lg font-black text-slate-800 mb-4">近 30 天類別分佈</h3>
+            <div className="space-y-3">
+              {categoryStats.filter(c => c.count > 0).map(cat => (
+                <div key={cat.value} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">{cat.icon}</span>
+                      <span className="text-sm font-bold text-slate-700">{cat.value}</span>
+                    </div>
+                    <span className="text-xs font-black text-slate-400">{cat.count} 次</span>
+                  </div>
+                  <div className="w-full h-2 bg-slate-50 rounded-full overflow-hidden">
+                    <div 
+                      style={{ width: `${(cat.count / totalLogs) * 100}%` }}
+                      className={`h-full ${cat.color} rounded-full transition-all duration-1000`}
+                    />
+                  </div>
+                </div>
+              ))}
+              {recentLogs.length === 0 && (
+                <div className="text-center py-10 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
+                  <p className="text-slate-400 text-sm font-medium">近 30 天沒有運動紀錄</p>
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="grid grid-cols-2 gap-4">
+            <div className="bg-blue-600 rounded-3xl p-5 text-white shadow-xl shadow-blue-100">
+              <p className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-1">平均強度</p>
+              <p className="text-3xl font-black">{avgEffort}</p>
+              <div className="mt-2 text-[10px] font-bold opacity-80">最近 10 次紀錄</div>
+            </div>
+            <div className="bg-yellow-400 rounded-3xl p-5 text-slate-900 shadow-xl shadow-yellow-100">
+              <p className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-1">平均表現</p>
+              <p className="text-3xl font-black">{avgPerf} <span className="text-sm">⭐</span></p>
+              <div className="mt-2 text-[10px] font-bold opacity-80">最近 10 次紀錄</div>
+            </div>
+          </section>
+        </div>
+      );
+    };
+
+    const CalendarView = ({ logs, onEdit, onDelete }) => {
+      const [viewDate, setViewDate] = useState(new Date());
+      const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+
+      const startOfMonth = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1);
+      const endOfMonth = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0);
+      
+      const startDay = startOfMonth.getDay();
+      const daysInMonth = endOfMonth.getDate();
+      
+      const calendarDays = [];
+      for (let i = 0; i < startDay; i++) calendarDays.push(null);
+      for (let i = 1; i <= daysInMonth; i++) calendarDays.push(new Date(viewDate.getFullYear(), viewDate.getMonth(), i));
+
+      const getLogsForDate = (date) => {
+        const dateStr = date.toISOString().split('T')[0];
+        return logs.filter(l => l.date.split('T')[0] === dateStr);
+      };
+
+      const nextMonth = () => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1));
+      const prevMonth = () => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1));
+
+      const selectedDateLogs = selectedDate ? logs.filter(l => l.date.split('T')[0] === selectedDate) : [];
+
+      return (
+        <div className="p-6 space-y-6 pb-24">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-black text-slate-800">
+              {viewDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
+            </h2>
+            <div className="flex gap-2">
+              <button type="button" onClick={prevMonth} className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+              </button>
+              <button type="button" onClick={nextMonth} className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-3xl p-4 shadow-sm border border-slate-100">
+            <div className="grid grid-cols-7 gap-1 mb-2">
+              {['日', '一', '二', '三', '四', '五', '六'].map(d => (
+                <div key={d} className="text-center text-[10px] font-black text-slate-400 py-2">{d}</div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7 gap-1">
+              {calendarDays.map((day, idx) => {
+                if (!day) return <div key={`empty-${idx}`} className="aspect-square" />;
+                
+                const dateStr = day.toISOString().split('T')[0];
+                const isSelected = selectedDate === dateStr;
+                const dayLogs = getLogsForDate(day);
+                const hasLogs = dayLogs.length > 0;
+                const isToday = new Date().toISOString().split('T')[0] === dateStr;
+
+                return (
+                  <button
+                    key={dateStr}
+                    type="button"
+                    onClick={() => setSelectedDate(dateStr)}
+                    className={`
+                      aspect-square rounded-xl flex flex-col items-center justify-center relative transition-all duration-200
+                      ${isSelected ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'hover:bg-slate-50 text-slate-700'}
+                      ${isToday && !isSelected ? 'border border-blue-200' : ''}
+                    `}
+                  >
+                    <span className={`text-xs font-bold ${isSelected ? 'text-white' : isToday ? 'text-blue-600' : 'text-slate-700'} ${hasLogs ? '-mt-1' : ''}`}>
+                      {day.getDate()}
+                    </span>
+                    {hasLogs && (
+                      <div className="flex gap-0.5 mt-0.5 justify-center">
+                        {dayLogs.slice(0, 2).map((l, i) => {
+                          const config = CATEGORIES.find(c => c.value === l.category);
+                          return (
+                            <span key={l.id + i} className="text-[10px] leading-none">{config?.icon}</span>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-4">
+              {selectedDate === new Date().toISOString().split('T')[0] ? '今天' : selectedDate} 運動詳情
+            </h3>
+            <div className="space-y-4">
+              {selectedDateLogs.length === 0 ? (
+                <div className="text-center py-8 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
+                  <p className="text-slate-400 text-sm font-medium italic">這天沒有運動紀錄 💤</p>
+                </div>
+              ) : (
+                selectedDateLogs.map(log => {
+                  const catConfig = CATEGORIES.find(c => c.value === log.category);
+                  return (
+                    <div key={log.id} className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm space-y-3">
+                      <div className="flex items-center gap-4">
+                        <div className={`w-12 h-12 rounded-2xl ${catConfig?.color} flex items-center justify-center text-xl shadow-inner text-white flex-shrink-0`}>
+                          {catConfig?.icon}
+                        </div>
+                        <div className="flex-1 overflow-hidden">
+                          <h4 className="font-bold text-slate-800 truncate">{log.subcategory}</h4>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase">{log.category} • {log.durationMinutes / 60} 小時</p>
+                        </div>
+                        <div className="flex gap-1">
+                          <button 
+                            type="button"
+                            onClick={() => onEdit(log)} 
+                            className="p-2 text-slate-300 hover:text-blue-600 transition-all active:scale-90"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => onDelete(log.id)} 
+                            className="p-2 text-slate-300 hover:text-red-600 transition-all active:scale-90"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* 詳細狀態展示區 */}
+                      <div className="grid grid-cols-3 gap-2 p-2 bg-slate-50 rounded-2xl">
+                        <div className="flex flex-col items-center">
+                          <span className="text-[8px] font-black text-slate-400 uppercase">強度</span>
+                          <span className="text-xs font-black text-blue-600">{log.effort || '--'}</span>
+                        </div>
+                        <div className="flex flex-col items-center border-x border-slate-200">
+                          <span className="text-[8px] font-black text-slate-400 uppercase">表現</span>
+                          <div className="flex gap-0.5">
+                            {[1, 2, 3, 4, 5].map(i => (
+                              <span key={i} className={`text-[10px] ${i <= (log.performance || 0) ? "grayscale-0" : "grayscale opacity-20"}`}>
+                                ⭐
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-center">
+                          <span className="text-[8px] font-black text-slate-400 uppercase">心情</span>
+                          <span className="text-sm">{log.mood || '😐'}</span>
+                        </div>
+                      </div>
+                      
+                      {log.notes && (
+                        <p className="text-xs text-slate-500 bg-slate-50 p-3 rounded-2xl italic">
+                          "{log.notes}"
+                        </p>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const ExerciseForm = ({ onSave, onCancel, initialData }) => {
+      const MOODS = ['🤩', '😊', '😐', '😫', '😡'];
+      const [category, setCategory] = useState(initialData?.category || CATEGORIES[0].value);
+      const [subcategory, setSubcategory] = useState(initialData?.subcategory || '');
+      const [date, setDate] = useState(initialData?.date ? initialData.date.split('T')[0] : new Date().toISOString().split('T')[0]);
+      const [duration, setDuration] = useState(initialData?.durationMinutes || 60);
+      const [effort, setEffort] = useState(initialData?.effort || 5);
+      const [performance, setPerformance] = useState(initialData?.performance || 3);
+      const [mood, setMood] = useState(initialData?.mood || '😊');
+      const [notes, setNotes] = useState(initialData?.notes || '');
+
+      const currentCategoryConfig = CATEGORIES.find(c => c.value === category);
+
+      useEffect(() => {
+        if (currentCategoryConfig && !currentCategoryConfig.subcategories.includes(subcategory)) {
+          setSubcategory(currentCategoryConfig.subcategories[0]);
+        }
+      }, [category]);
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        const log = {
+          id: initialData?.id || Date.now().toString(),
+          category,
+          subcategory,
+          date: new Date(date).toISOString(),
+          durationMinutes: Number(duration),
+          effort: Number(effort),
+          performance: Number(performance),
+          mood,
+          notes
+        };
+        onSave(log);
+      };
+
+      const durationOptions = [];
+      for (let i = 0.5; i <= 6; i += 0.5) {
+        durationOptions.push({
+          label: `${i} 小時`,
+          value: i * 60
+        });
+      }
+
+      return (
+        <div className="p-6">
+          <div className="flex items-center justify-between mb-8">
+            <h2 className="text-2xl font-black text-slate-800">{initialData ? '修改運動' : '新增運動紀錄'}</h2>
+            <button type="button" onClick={onCancel} className="p-2 text-slate-400 hover:text-slate-600">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-6 pb-24">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">主類別</label>
+              <div className="grid grid-cols-4 gap-2">
+                {CATEGORIES.map(cat => (
+                  <button
+                    key={cat.value}
+                    type="button"
+                    onClick={() => setCategory(cat.value)}
+                    className={`flex flex-col items-center p-2 rounded-xl border-2 transition-all ${category === cat.value ? 'border-blue-600 bg-blue-50' : 'border-slate-50 bg-white'}`}
+                  >
+                    <span className="text-xl">{cat.icon}</span>
+                    <span className={`text-[10px] font-bold mt-1 ${category === cat.value ? 'text-blue-600' : 'text-slate-400'}`}>{cat.value}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">子類別</label>
+              <select 
+                value={subcategory}
+                onChange={(e) => setSubcategory(e.target.value)}
+                className="w-full p-4 rounded-2xl bg-white border border-slate-100 shadow-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 appearance-none"
+              >
+                {currentCategoryConfig?.subcategories.map(sub => (
+                  <option key={sub} value={sub}>{sub}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">日期</label>
+                <input 
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  className="w-full p-4 rounded-2xl bg-white border border-slate-100 shadow-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">時長 (小時)</label>
+                <select 
+                  value={duration}
+                  onChange={(e) => setDuration(Number(e.target.value))}
+                  className="w-full p-4 rounded-2xl bg-white border border-slate-100 shadow-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 appearance-none"
+                >
+                  {durationOptions.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-6 bg-slate-50 p-5 rounded-3xl border border-slate-100">
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">運動強度 (Effort)</label>
+                  <span className="text-sm font-black text-blue-600 bg-blue-50 px-2 py-1 rounded-lg">{effort}/10</span>
+                </div>
+                <input 
+                  type="range" 
+                  min="1" max="10" 
+                  value={effort} 
+                  onChange={(e) => setEffort(parseInt(e.target.value))}
+                  className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                />
+                <div className="flex justify-between text-[10px] font-bold text-slate-400">
+                  <span>輕鬆</span>
+                  <span>極限</span>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">表現評分 (Performance)</label>
+                <div className="flex justify-between gap-1">
+                  {[1, 2, 3, 4, 5].map(star => (
+                    <button
+                      key={star}
+                      type="button"
+                      onClick={() => setPerformance(star)}
+                      className={`flex-1 py-3 rounded-xl text-2xl transition-all border-2 ${performance >= star ? 'border-yellow-400 bg-yellow-50 scale-105' : 'border-transparent bg-white opacity-40 grayscale'}`}
+                    >
+                      ⭐
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">運動後心情 (Mood)</label>
+                <div className="flex justify-between bg-white p-2 rounded-2xl border border-slate-100 shadow-sm">
+                  {MOODS.map(m => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setMood(m)}
+                      className={`w-10 h-10 flex items-center justify-center text-xl rounded-xl transition-all ${mood === m ? 'bg-blue-600 text-white shadow-lg scale-110' : 'hover:bg-slate-50 grayscale opacity-50'}`}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">備註 (可選)</label>
+              <textarea 
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="今天感覺如何？"
+                className="w-full p-4 rounded-2xl bg-white border border-slate-100 shadow-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 min-h-[80px]"
+              />
+            </div>
+
+            <button 
+              type="submit"
+              className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-2xl shadow-xl shadow-blue-200 transition-all active:scale-95"
+            >
+              {initialData ? '保存修改' : '確認新增'}
+            </button>
+          </form>
+        </div>
+      );
+    };
+
+    // --- 4. APP COMPONENT ---
+    const App = () => {
+      const [view, setView] = useState('dashboard');
+      const [logs, setLogs] = useState([]);
+      const [editingLog, setEditingLog] = useState(null);
+      const [deleteId, setDeleteId] = useState(null);
+      const [user, setUser] = useState(null);
+      const [statusText, setStatusText] = useState('');
+      const [isInitialLoading, setIsInitialLoading] = useState(true);
+
+      // 初始化
+      useEffect(() => {
+        storageService.init((firebaseUser) => {
+          setUser(firebaseUser);
+          setIsInitialLoading(false);
+        });
+      }, []);
+
+      // 數據同步邏輯
+      useEffect(() => {
+        let unsubscribe = null;
+
+        const syncData = async () => {
+          if (user) {
+            setStatusText('連線中...');
+            const { getFirestore, doc, onSnapshot } = await import('firebase/firestore');
+            const { getApp } = await import('firebase/app');
+            const db = getFirestore(getApp());
+            
+            unsubscribe = onSnapshot(doc(db, "users", user.uid), (docSnap) => {
+              if (docSnap.exists()) {
+                const data = docSnap.data();
+                if (data.logs) {
+                  setLogs(data.logs);
+                  setStatusText('已同步');
+                  localStorage.setItem(STORAGE_KEY, JSON.stringify(data.logs));
+                }
+              } else {
+                const local = storageService.getLocalLogs();
+                if (local.length > 0) {
+                  storageService.saveLogs(local, user.uid);
+                  setLogs(local);
+                } else {
+                  setLogs([]);
+                }
+                setStatusText('就緒');
+              }
+            }, (error) => {
+              console.error("Sync error", error);
+              setStatusText('離線');
+            });
+
+          } else {
+            const localLogs = storageService.getLocalLogs();
+            setLogs(localLogs);
+            setStatusText('本地模式');
+          }
+        };
+
+        if (!isInitialLoading) {
+          syncData();
+        }
+
+        return () => {
+          if (unsubscribe) unsubscribe();
+        };
+      }, [user, isInitialLoading]);
+
+      const saveAndSync = async (newLogs) => {
+        setLogs(newLogs);
+        setStatusText('儲存中...');
+        await storageService.saveLogs(newLogs, user?.uid);
+        setTimeout(() => {
+          setStatusText(user ? '已同步' : '已儲存 (本地)');
+        }, 800);
+      };
+
+      const handleAddLog = (newLog) => {
+        const updated = [newLog, ...logs];
+        saveAndSync(updated);
+        setView('dashboard');
+      };
+
+      const handleUpdateLog = (updatedLog) => {
+        const updated = logs.map(log => log.id === updatedLog.id ? updatedLog : log);
+        saveAndSync(updated);
+        setEditingLog(null);
+        setView('dashboard');
+      };
+
+      const confirmDelete = () => {
+        if (deleteId) {
+          const updated = logs.filter(log => log.id !== deleteId);
+          saveAndSync(updated);
+          setDeleteId(null);
+        }
+      };
+
+      const handleLoginToggle = () => {
+        if (user) {
+          storageService.logout();
+        } else {
+          storageService.login();
+        }
+      };
+
+      const renderView = () => {
+        if (isInitialLoading) {
+          return (
+            <div className="flex flex-col items-center justify-center h-screen bg-slate-50">
+              <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+              <p className="text-slate-400 font-bold text-sm tracking-widest">啟動中...</p>
+            </div>
+          );
+        }
+
+        switch (view) {
+          case 'dashboard':
+            return <Dashboard logs={logs} onEdit={setEditingLog} onDelete={setDeleteId} onViewChange={setView} />;
+          case 'trends':
+            return <TrendsView logs={logs} />;
+          case 'calendar':
+            return <CalendarView logs={logs} onEdit={setEditingLog} onDelete={setDeleteId} />;
+          case 'add':
+            return (
+              <ExerciseForm 
+                onSave={editingLog ? handleUpdateLog : handleAddLog}
+                onCancel={() => { setEditingLog(null); setView('dashboard'); }}
+                initialData={editingLog || undefined}
+              />
+            );
+          default:
+            return <Dashboard logs={logs} onEdit={setEditingLog} onDelete={setDeleteId} onViewChange={setView} />;
+        }
+      };
+
+      return (
+        <Layout 
+          activeView={view} 
+          onViewChange={setView}
+          user={user}
+          onLoginToggle={handleLoginToggle}
+          statusText={statusText}
+        >
+          {renderView()}
+
+          {deleteId && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm">
+              <div className="bg-white rounded-3xl p-6 w-full max-w-xs shadow-2xl animate-bounce-in">
+                <h3 className="text-lg font-bold text-slate-900 text-center mb-6">確認刪除紀錄？</h3>
+                <div className="flex gap-3">
+                  <button onClick={() => setDeleteId(null)} className="flex-1 py-3 bg-slate-100 rounded-xl font-bold text-slate-600">取消</button>
+                  <button onClick={confirmDelete} className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold shadow-lg shadow-red-200">刪除</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </Layout>
+      );
+    };
+
+    // --- 5. RENDER ---
     const rootElement = document.getElementById('root');
-    if (!rootElement) {
-      throw new Error("Could not find root element to mount to");
-    }
-
     const root = ReactDOM.createRoot(rootElement);
     root.render(
       <React.StrictMode>
