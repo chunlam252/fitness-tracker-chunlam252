@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { CategoryOption } from './types';
+import { CategoryOption } from './types.ts';
 
 export const CATEGORIES: CategoryOption[] = [
   { 

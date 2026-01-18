@@ -1,12 +1,12 @@
 
 import React, { useState, useEffect } from 'react';
-import Layout from './components/Layout';
-import Dashboard from './components/Dashboard';
-import CalendarView from './components/CalendarView';
-import ExerciseForm from './components/ExerciseForm';
-import TrendsView from './components/TrendsView';
-import { ExerciseLog, ViewMode } from './types';
-import { storageService } from './services/storageService';
+import Layout from './components/Layout.tsx';
+import Dashboard from './components/Dashboard.tsx';
+import CalendarView from './components/CalendarView.tsx';
+import ExerciseForm from './components/ExerciseForm.tsx';
+import TrendsView from './components/TrendsView.tsx';
+import { ExerciseLog, ViewMode } from './types.ts';
+import { storageService } from './services/storageService.ts';
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewMode>('dashboard');

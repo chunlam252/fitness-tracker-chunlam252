@@ -1,7 +1,7 @@
 
 import React from 'react';
-import { ExerciseLog } from '../types';
-import { CATEGORIES } from '../constants';
+import { ExerciseLog } from '../types.ts';
+import { CATEGORIES } from '../constants.tsx';
 
 interface TrendsViewProps {
   logs: ExerciseLog[];

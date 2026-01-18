@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
-import { ExerciseLog, SportCategory } from '../types';
-import { CATEGORIES } from '../constants';
+import { ExerciseLog, SportCategory } from '../types.ts';
+import { CATEGORIES } from '../constants.tsx';
 
 interface DashboardProps {
   logs: ExerciseLog[];

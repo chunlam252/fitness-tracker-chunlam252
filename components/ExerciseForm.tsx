@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { ExerciseLog, SportCategory } from '../types';
-import { CATEGORIES } from '../constants';
+import { ExerciseLog, SportCategory } from '../types.ts';
+import { CATEGORIES } from '../constants.tsx';
 
 interface ExerciseFormProps {
   onSave: (log: ExerciseLog) => void;

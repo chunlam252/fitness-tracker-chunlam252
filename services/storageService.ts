@@ -1,6 +1,6 @@
 
-import { ExerciseLog } from '../types';
-import { STORAGE_KEY } from '../constants';
+import { ExerciseLog } from '../types.ts';
+import { STORAGE_KEY } from '../constants.tsx';
 
 const firebaseConfig = {
   apiKey: "AIzaSyCxrAn6x69Ki4c-MTrpBhyGnX2XFKW2f4k",

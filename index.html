@@ -26,7 +26,10 @@
       border-radius: 10px;
     }
   </style>
-<script type="importmap">
+  <!-- 引入 Babel 用於瀏覽器編譯 TSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <script type="importmap">
 {
   "imports": {
     "react": "https://esm.sh/react@18.2.0",
@@ -46,5 +49,7 @@
 </head>
 <body>
   <div id="root"></div>
+  <!-- 重要：載入主程式，並指定類型為 text/babel -->
+  <script type="text/babel" data-type="module" data-presets="react,typescript" src="./index.tsx"></script>
 </body>
 </html>
