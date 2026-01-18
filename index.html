@@ -1,20 +1,29 @@
-
 <!DOCTYPE html>
 <html lang="zh-HK">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>FitTrack 運動日常</title>
+  <meta name="description" content="一個全功能的運動追蹤應用程式">
+  
+  <!-- Tailwind CSS (CDN) -->
   <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
   <style>
+    /* 全局樣式 */
     body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background-color: #f8fafc;
+      background-color: #f8fafc; /* Slate-50 */
       -webkit-tap-highlight-color: transparent;
+      overscroll-behavior-y: none;
     }
+
+    /* 自定義滾動條 */
     .custom-scrollbar::-webkit-scrollbar {
       width: 4px;
     }
@@ -22,34 +31,43 @@
       background: transparent;
     }
     .custom-scrollbar::-webkit-scrollbar-thumb {
-      background: #e2e8f0;
+      background: #cbd5e1;
       border-radius: 10px;
     }
-    /* 動畫效果 */
+
+    /* 動畫 Keyframes */
     @keyframes bounceIn {
-      0% { opacity: 0; transform: scale(0.9); }
+      0% { opacity: 0; transform: scale(0.95); }
       50% { opacity: 1; transform: scale(1.02); }
       100% { transform: scale(1); }
     }
-    .animate-bounce-in {
-      animation: bounceIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    @keyframes slideUp {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    
+    .animate-bounce-in { animation: bounceIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+    .animate-slide-up { animation: slideUp 0.3s ease-out forwards; }
+
+    /* Safe Area for Mobile */
+    .safe-area-pb {
+      padding-bottom: env(safe-area-inset-bottom, 20px);
     }
   </style>
   
-  <!-- Babel 用於瀏覽器編譯 TSX -->
+  <!-- Babel (用於瀏覽器內編譯 React) -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   
-  <!-- Import Map: 修正版本衝突，只使用 React 18 和 Firebase 10 -->
+  <!-- Import Map: 嚴格鎖定 React 18.2.0 和 Firebase 10.12.0 -->
+  <!-- 已移除導致衝突的 React 19 和 Firebase 12 引用 -->
   <script type="importmap">
 {
   "imports": {
     "react": "https://esm.sh/react@18.2.0",
-    "react-dom": "https://esm.sh/react-dom@18.2.0",
     "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
     "firebase/app": "https://esm.sh/firebase@10.12.0/app",
     "firebase/auth": "https://esm.sh/firebase@10.12.0/auth",
     "firebase/firestore": "https://esm.sh/firebase@10.12.0/firestore",
-    "firebase/analytics": "https://esm.sh/firebase@10.12.0/analytics",
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
     "react/": "https://esm.sh/react@^19.2.3/",
     "firebase/": "https://esm.sh/firebase@^12.8.0/"
@@ -60,126 +78,102 @@
 <body>
   <div id="root"></div>
 
-  <!-- 主程式碼：整合所有組件 -->
-  <script type="text/babel" data-type="module" data-presets="react,typescript">
+  <!-- 主程式邏輯 -->
+  <script type="text/babel" data-type="module">
     import React, { useState, useEffect } from 'react';
     import ReactDOM from 'react-dom/client';
     
-    // --- 1. CONSTANTS & TYPES ---
+    // --- 1. CONSTANTS & CONFIG ---
     const STORAGE_KEY = 'fittrack_logs_v1';
     
     const CATEGORIES = [
       { 
         value: 'Gym', 
         subcategories: ['功能性訓練', '重量訓練', '帶氧運動', 'HIIT', '伸展'], 
-        color: 'bg-blue-500',
-        icon: '💪'
+        color: 'bg-blue-500', icon: '💪' 
       },
       { 
         value: '羽毛球', 
         subcategories: ['友誼賽', '技術練習', '正式比賽', '單打', '雙打'], 
-        color: 'bg-green-500',
-        icon: '🏸'
+        color: 'bg-green-500', icon: '🏸' 
       },
       { 
         value: '排球', 
         subcategories: ['打比賽', '隊訓', '街場', '技術訓練'], 
-        color: 'bg-orange-500',
-        icon: '🏐'
+        color: 'bg-orange-500', icon: '🏐' 
       },
       { 
         value: '跑步', 
         subcategories: ['慢跑', '長跑', '衝刺練習', '馬拉松訓練'], 
-        color: 'bg-red-500',
-        icon: '🏃'
+        color: 'bg-red-500', icon: '🏃' 
       },
       { 
         value: '游泳', 
         subcategories: ['自由式', '蛙式', '蝶式', '背泳'], 
-        color: 'bg-cyan-500',
-        icon: '🏊'
+        color: 'bg-cyan-500', icon: '🏊' 
       },
       { 
         value: '瑜伽', 
         subcategories: ['哈達瑜伽', '流瑜伽', '陰瑜伽', '普拉提'], 
-        color: 'bg-purple-500',
-        icon: '🧘'
+        color: 'bg-purple-500', icon: '🧘' 
       },
       { 
         value: '其他', 
         subcategories: ['自定義項目'], 
-        color: 'bg-gray-500',
-        icon: '✨'
+        color: 'bg-slate-500', icon: '✨' 
       },
     ];
 
-    // --- 2. SERVICE ---
     const firebaseConfig = {
       apiKey: "AIzaSyCxrAn6x69Ki4c-MTrpBhyGnX2XFKW2f4k",
       authDomain: "fittracker-chunlam252.firebaseapp.com",
       projectId: "fittracker-chunlam252",
       storageBucket: "fittracker-chunlam252.firebasestorage.app",
       messagingSenderId: "629880531604",
-      appId: "1:629880531604:web:76fd44292a79fbdad86281",
-      measurementId: "G-Z40MK7PG39"
+      appId: "1:629880531604:web:76fd44292a79fbdad86281"
     };
 
+    // --- 2. SERVICE LAYER ---
     let db = null;
     let auth = null;
     let googleProvider = null;
 
     const storageService = {
       init: async (onUserChange) => {
-        const timeoutPromise = new Promise((resolve) => {
-          setTimeout(() => resolve('timeout'), 4000);
-        });
-
+        // 3秒超時機制，防止卡在 Loading
+        const timeoutPromise = new Promise(resolve => setTimeout(() => resolve('timeout'), 3000));
+        
         const initPromise = (async () => {
           try {
-            const { initializeApp } = await import('firebase/app');
+            const { initializeApp, getApps, getApp } = await import('firebase/app');
             const { getFirestore } = await import('firebase/firestore');
             const { getAuth, onAuthStateChanged, GoogleAuthProvider } = await import('firebase/auth');
             
-            // 確保只初始化一次
-            let app;
-            try {
-               // 嘗試獲取已存在的 App，避免重複初始化
-               const { getApp } = await import('firebase/app');
-               app = getApp();
-            } catch (e) {
-               app = initializeApp(firebaseConfig);
-            }
-            
+            // 確保單例模式
+            const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
             db = getFirestore(app);
             auth = getAuth(app);
             googleProvider = new GoogleAuthProvider();
 
-            onAuthStateChanged(auth, (user) => {
-              onUserChange(user);
-            });
+            onAuthStateChanged(auth, (user) => onUserChange(user));
             return 'success';
           } catch (e) {
-            console.error("Firebase init error:", e);
+            console.error("Firebase Init Error:", e);
             return 'error';
           }
         })();
 
         const result = await Promise.race([initPromise, timeoutPromise]);
-        
         if (result !== 'success') {
-          console.warn("Firebase initialization timed out or failed. Running in offline mode.");
+          console.warn("Offline Mode Active (Firebase init failed or timed out)");
           onUserChange(null);
         }
       },
 
       login: async () => {
-        if (!auth || !googleProvider) return;
+        if (!auth) return;
         const { signInWithPopup } = await import('firebase/auth');
-        try {
-          await signInWithPopup(auth, googleProvider);
-        } catch (e) {
-          console.error(e);
-        }
+        try { await signInWithPopup(auth, googleProvider); } catch(e) { console.error(e); }
       },
 
       logout: async () => {
@@ -189,17 +183,14 @@
       },
 
       saveLogs: async (logs, userId) => {
+        // 永遠先存本地
         localStorage.setItem(STORAGE_KEY, JSON.stringify(logs));
+        // 如果有登入，嘗試存雲端
         if (db && userId) {
           try {
             const { doc, setDoc } = await import('firebase/firestore');
-            await setDoc(doc(db, "users", userId), { 
-              logs, 
-              updatedAt: new Date().toISOString() 
-            }, { merge: true });
-          } catch (e) {
-            console.error("Auto-upload failed:", e);
-          }
+            await setDoc(doc(db, "users", userId), { logs, updatedAt: new Date().toISOString() }, { merge: true });
+          } catch (e) { console.error("Cloud save failed", e); }
         }
       },
 
@@ -211,802 +202,452 @@
 
     // --- 3. COMPONENTS ---
 
+    // [Layout] 應用程式外框
     const Layout = ({ children, activeView, onViewChange, user, onLoginToggle, statusText }) => {
       return (
-        <div className="flex flex-col min-h-screen max-w-md mx-auto bg-white shadow-xl relative border-x border-slate-100">
-          <header className="px-6 py-5 bg-white/80 backdrop-blur-md border-b sticky top-0 z-30 flex justify-between items-center">
+        <div className="flex flex-col h-[100dvh] max-w-md mx-auto bg-white shadow-2xl relative overflow-hidden border-x border-slate-100">
+          {/* Header */}
+          <header className="px-6 py-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0">
             <div>
-              <h1 className="text-xl font-bold text-slate-800 tracking-tight">FitTrack</h1>
-              <div className="flex items-center gap-1.5 transition-all">
-                <div className={`w-1.5 h-1.5 rounded-full ${statusText?.includes('同步') ? 'bg-green-500' : statusText?.includes('儲存') ? 'bg-yellow-500' : 'bg-slate-300'}`}></div>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                  {statusText || '就緒'}
-                </p>
+              <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v2.3</span>
+              </h1>
+              <div className="flex items-center gap-1.5 mt-1">
+                <span className={`w-2 h-2 rounded-full ${statusText?.includes('同步') ? 'bg-green-500 animate-pulse' : statusText?.includes('儲存') ? 'bg-yellow-500' : 'bg-slate-300'}`}></span>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{statusText || '就緒'}</p>
               </div>
             </div>
             
-            <button 
-              onClick={onLoginToggle}
-              className={`px-4 py-2 rounded-xl border flex items-center gap-2 transition-all active:scale-95 ${user ? 'bg-slate-50 border-slate-100 text-slate-600' : 'bg-slate-900 border-slate-900 text-white shadow-lg'}`}
-            >
-              {user && user.photoURL ? (
-                <img src={user.photoURL} alt="User" className="w-5 h-5 rounded-full ring-2 ring-white" />
-              ) : (
-                <span className="text-sm">☁️</span>
-              )}
-              <span className="text-xs font-bold">{user ? '登出' : '登入備份'}</span>
+            <button onClick={onLoginToggle} className={`p-2 rounded-full border transition-all active:scale-95 ${user ? 'border-blue-100 bg-blue-50' : 'border-slate-200 bg-white'}`}>
+              {user?.photoURL ? 
+                <img src={user.photoURL} className="w-8 h-8 rounded-full" alt="User" /> : 
+                <div className="w-8 h-8 flex items-center justify-center text-slate-400">👤</div>
+              }
             </button>
           </header>
 
-          <main className="flex-1 overflow-y-auto pb-24 custom-scrollbar bg-slate-50/50">
+          {/* Main Content */}
+          <main className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50 relative">
             {children}
           </main>
 
-          <nav className="fixed bottom-0 w-full max-w-md bg-white/90 backdrop-blur-md border-t flex justify-around items-center py-3 px-2 shadow-[0_-8px_30px_rgb(0,0,0,0.04)] z-30">
-            <button onClick={() => onViewChange('dashboard')} className={`flex flex-col items-center gap-1 flex-1 transition-colors ${activeView === 'dashboard' ? 'text-blue-600' : 'text-slate-400'}`}>
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
-              <span className="text-[10px] font-bold">主頁</span>
-            </button>
-            <button onClick={() => onViewChange('trends')} className={`flex flex-col items-center gap-1 flex-1 transition-colors ${activeView === 'trends' ? 'text-blue-600' : 'text-slate-400'}`}>
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
-              <span className="text-[10px] font-bold">趨勢</span>
-            </button>
-            <button onClick={() => onViewChange('add')} className="flex flex-col items-center -mt-8 group">
-              <div className="w-14 h-14 bg-blue-600 rounded-full flex items-center justify-center text-white shadow-xl shadow-blue-200 border-4 border-white group-active:scale-90 transition-transform">
-                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+          {/* Bottom Nav */}
+          <nav className="shrink-0 bg-white border-t border-slate-100 flex justify-around items-end pb-6 pt-3 px-2 z-30 safe-area-pb shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)]">
+            <NavBtn active={activeView === 'dashboard'} onClick={() => onViewChange('dashboard')} icon="home" label="主頁" />
+            <NavBtn active={activeView === 'trends'} onClick={() => onViewChange('trends')} icon="chart" label="趨勢" />
+            
+            <button onClick={() => onViewChange('add')} className="flex flex-col items-center -mt-10 group active:scale-95 transition-transform">
+              <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center text-white shadow-xl shadow-blue-200 border-[6px] border-white ring-1 ring-slate-100">
+                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
               </div>
               <span className="text-[10px] font-bold text-blue-600 mt-1">紀錄</span>
             </button>
-            <button onClick={() => onViewChange('calendar')} className={`flex flex-col items-center gap-1 flex-1 transition-colors ${activeView === 'calendar' ? 'text-blue-600' : 'text-slate-400'}`}>
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-              <span className="text-[10px] font-bold">日曆</span>
-            </button>
+
+            <NavBtn active={activeView === 'calendar'} onClick={() => onViewChange('calendar')} icon="calendar" label="日曆" />
+            <NavBtn active={false} onClick={() => alert('更多功能即將推出')} icon="menu" label="更多" />
           </nav>
         </div>
       );
     };
 
-    const Dashboard = ({ logs, onEdit, onDelete, onViewChange }) => {
-      const today = new Date();
-      const currentYear = today.getFullYear();
-      
-      const sortedLogs = [...logs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-      const getDaysSince = (dateStr) => {
-        const date = new Date(dateStr);
-        const diffTime = Math.abs(today.getTime() - date.getTime());
-        return Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    const NavBtn = ({ active, onClick, icon, label }) => {
+      const icons = {
+        home: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />,
+        chart: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />,
+        calendar: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />,
+        menu: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
       };
 
-      const lastWorkout = sortedLogs[0];
-      const daysSinceLast = lastWorkout ? getDaysSince(lastWorkout.date) : null;
-      const uniqueDaysThisYear = new Set(logs.filter(log => new Date(log.date).getFullYear() === currentYear).map(log => log.date.split('T')[0])).size;
-
-      const importantCategories = ['Gym', '羽毛球', '排球'];
-
       return (
-        <div className="p-6 space-y-6 pb-32">
-          {/* Hero Section */}
-          <section className="bg-slate-900 rounded-[2rem] p-6 shadow-lg text-white relative">
-            <div className="grid grid-cols-2 gap-6">
+        <button onClick={onClick} className={`flex flex-col items-center gap-1 flex-1 py-2 transition-all ${active ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">{icons[icon]}</svg>
+          <span className="text-[10px] font-bold">{label}</span>
+        </button>
+      );
+    };
+
+    // [Dashboard] 主頁
+    const Dashboard = ({ logs, onEdit, onViewChange }) => {
+      const sortedLogs = [...logs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      
+      const getDaysSince = (date) => Math.floor(Math.abs(new Date().getTime() - new Date(date).getTime()) / (86400000));
+      const lastWorkout = sortedLogs[0];
+      const daysSince = lastWorkout ? getDaysSince(lastWorkout.date) : -1;
+      const currentYear = new Date().getFullYear();
+      const uniqueDaysThisYear = new Set(logs.filter(log => new Date(log.date).getFullYear() === currentYear).map(log => log.date.split('T')[0])).size;
+      
+      return (
+        <div className="p-6 space-y-6 animate-slide-up">
+          {/* Status Card */}
+          <div className="bg-slate-900 rounded-[2rem] p-6 text-white shadow-xl shadow-slate-200 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500 rounded-full blur-[60px] opacity-20"></div>
+            <div className="relative z-10 grid grid-cols-2 gap-8">
               <div>
-                <p className="text-slate-400 text-[10px] font-black uppercase mb-1">對上一次運動</p>
-                <div className="flex items-baseline gap-1">
-                  <span className="text-4xl font-black">{daysSinceLast === null ? '--' : daysSinceLast}</span>
-                  <span className="text-xs font-bold text-slate-500">DAYS</span>
-                </div>
+                <div className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">上次運動</div>
+                <div className="text-4xl font-black">{daysSince === -1 ? '-' : daysSince}<span className="text-sm text-slate-500 ml-1">天前</span></div>
               </div>
-              <div className="border-l border-white/10 pl-6">
-                <p className="text-slate-400 text-[10px] font-black uppercase mb-1">今年運動天數</p>
-                <div className="flex items-baseline gap-1">
-                  <span className="text-4xl font-black text-blue-400">{uniqueDaysThisYear}</span>
-                  <span className="text-xs font-bold text-slate-500">DAYS</span>
-                </div>
+              <div className="border-l border-white/10 pl-8">
+                <div className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">今年運動天數</div>
+                <div className="text-4xl font-black text-blue-400">{uniqueDaysThisYear}</div>
               </div>
             </div>
-          </section>
+          </div>
 
-          {/* Exercise Alarms */}
-          <section>
-            <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-4">運動警報</h3>
+          {/* Quick Stats */}
+          <div>
+            <div className="flex justify-between items-center mb-4">
+               <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">類別狀態</h3>
+            </div>
             <div className="grid grid-cols-3 gap-3">
-              {importantCategories.map(cat => {
-                const config = CATEGORIES.find(c => c.value === cat);
+              {['Gym', '羽毛球', '跑步'].map(cat => {
                 const last = sortedLogs.find(l => l.category === cat);
-                const days = last ? getDaysSince(last.date) : -1;
+                const dayDiff = last ? getDaysSince(last.date) : -1;
+                const config = CATEGORIES.find(c => c.value === cat);
                 return (
-                  <div key={cat} className="bg-white p-3 rounded-2xl border border-slate-100 flex flex-col items-center">
-                    <span className="text-xl mb-1">{config?.icon}</span>
-                    <span className="text-[9px] font-bold text-slate-400">{cat}</span>
-                    <span className={`text-[10px] font-black ${days === 0 ? 'text-green-500' : days > 3 ? 'text-red-500' : 'text-slate-700'}`}>
-                      {days === -1 ? '未有紀錄' : days === 0 ? '今天已做' : `${days}天前`}
+                  <div key={cat} className="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center gap-1">
+                    <span className="text-2xl">{config.icon}</span>
+                    <span className="text-[10px] font-bold text-slate-500">{cat}</span>
+                    <span className={`text-[10px] font-black ${dayDiff === 0 ? 'text-green-500' : dayDiff > 7 ? 'text-red-500' : 'text-slate-800'}`}>
+                      {dayDiff === -1 ? '無紀錄' : dayDiff === 0 ? '今天' : `${dayDiff}天前`}
                     </span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Recent List */}
+          <div>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">最近活動</h3>
+              <button onClick={() => onViewChange('calendar')} className="text-xs font-bold text-blue-600">查看全部</button>
+            </div>
+            <div className="space-y-3">
+              {sortedLogs.slice(0, 5).map(log => {
+                const config = CATEGORIES.find(c => c.value === log.category);
+                return (
+                  <div key={log.id} onClick={() => onEdit(log)} className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex items-center gap-4 active:scale-[0.98] transition-transform">
+                    <div className={`w-12 h-12 rounded-2xl ${config?.color || 'bg-gray-400'} flex items-center justify-center text-xl shadow-inner text-white`}>
+                      {config?.icon}
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="font-bold text-slate-800 text-sm">{log.subcategory}</h4>
+                      <div className="flex gap-2 text-[10px] font-bold text-slate-400 uppercase mt-0.5">
+                        <span>{new Date(log.date).toLocaleDateString()}</span>
+                        <span>•</span>
+                        <span>{(log.durationMinutes / 60).toFixed(1)}h</span>
+                      </div>
+                    </div>
+                    <div className="text-xl opacity-50">👉</div>
                   </div>
                 );
               })}
+              {logs.length === 0 && <div className="text-center py-10 text-slate-400 text-sm">還沒有紀錄，快去運動吧！</div>}
             </div>
-          </section>
-
-          {/* Recent Activity */}
-          <section>
-            <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-4">最近紀錄</h3>
-            <div className="space-y-4">
-              {sortedLogs.length === 0 ? (
-                <div className="text-center py-10 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
-                  <p className="text-slate-400 text-sm font-medium">仲未有紀錄喎，快啲加返個！</p>
-                </div>
-              ) : (
-                sortedLogs.slice(0, 5).map(log => {
-                  const catConfig = CATEGORIES.find(c => c.value === log.category);
-                  return (
-                    <div key={log.id} className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
-                      <div className={`w-12 h-12 rounded-2xl ${catConfig?.color} flex items-center justify-center text-xl text-white flex-shrink-0 shadow-inner`}>
-                        {catConfig?.icon}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-bold text-slate-800 truncate text-sm">{log.subcategory}</h4>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">
-                          {new Date(log.date).toLocaleDateString('zh-HK')} • {log.durationMinutes / 60}h
-                        </p>
-                      </div>
-                      <div className="flex gap-1">
-                        <button onClick={() => onEdit(log)} className="p-2 text-slate-300 hover:text-blue-600"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-            {sortedLogs.length > 5 && (
-              <button 
-                onClick={() => onViewChange('calendar')}
-                className="w-full py-3 mt-4 text-xs font-bold text-slate-400 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors"
-              >
-                查看全部紀錄
-              </button>
-            )}
-          </section>
+          </div>
         </div>
       );
     };
 
+    // [TrendsView] 趨勢
     const TrendsView = ({ logs }) => {
-      const today = new Date();
-      
-      const last7Days = Array.from({ length: 7 }).map((_, i) => {
+      // 簡單的統計邏輯
+      const last7Days = Array.from({length: 7}).map((_, i) => {
         const d = new Date();
-        d.setDate(today.getDate() - (6 - i));
+        d.setDate(d.getDate() - (6-i));
         const dateStr = d.toISOString().split('T')[0];
-        const dayLogs = logs.filter(l => l.date.split('T')[0] === dateStr);
-        const totalMinutes = dayLogs.reduce((acc, curr) => acc + curr.durationMinutes, 0);
-        return {
-          day: d.toLocaleDateString('zh-HK', { weekday: 'short' }),
-          hours: totalMinutes / 60,
-          date: dateStr
-        };
+        const mins = logs.filter(l => l.date.startsWith(dateStr)).reduce((a,b) => a + b.durationMinutes, 0);
+        return { day: d.getDate(), mins, isToday: i===6 };
+      });
+      const maxMins = Math.max(...last7Days.map(d => d.mins), 60);
+
+      // 平均強度計算
+      const last10 = [...logs].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0, 10);
+      const avgEffort = last10.length ? (last10.reduce((a,b)=>a+(b.effort||0),0)/last10.length).toFixed(1) : '0.0';
+
+      return (
+        <div className="p-6 space-y-8 animate-slide-up">
+          <div>
+            <h3 className="text-lg font-black text-slate-800 mb-6">每週活動量</h3>
+            <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100">
+              <div className="flex items-end justify-between h-40 gap-2">
+                {last7Days.map((d, i) => (
+                  <div key={i} className="flex-1 flex flex-col items-center gap-2">
+                    <div className="relative w-full flex items-end justify-center h-full">
+                       <div style={{height: `${(d.mins/maxMins)*100}%`}} 
+                            className={`w-full max-w-[16px] rounded-full min-h-[6px] transition-all duration-500 ${d.isToday ? 'bg-blue-500 shadow-lg shadow-blue-200' : 'bg-slate-100'}`}>
+                       </div>
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-400">{d.day}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-4">
+             <div className="bg-blue-600 rounded-3xl p-5 text-white shadow-lg shadow-blue-100">
+               <div className="text-[10px] font-black uppercase opacity-60">總時數</div>
+               <div className="text-3xl font-black mt-1">{(logs.reduce((a,b)=>a+b.durationMinutes,0)/60).toFixed(1)}<span className="text-sm ml-1">h</span></div>
+             </div>
+             <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-sm">
+               <div className="text-[10px] font-black uppercase text-slate-400">平均強度</div>
+               <div className="text-3xl font-black text-slate-800 mt-1">{avgEffort}</div>
+               <div className="text-[9px] text-slate-400 mt-1">最近10次</div>
+             </div>
+          </div>
+        </div>
+      );
+    }
+
+    // [CalendarView] 日曆
+    const CalendarView = ({ logs, onEdit }) => {
+      const [date, setDate] = useState(new Date());
+      const [selected, setSelected] = useState(new Date().toISOString().split('T')[0]);
+      
+      const year = date.getFullYear();
+      const month = date.getMonth();
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const firstDay = new Date(year, month, 1).getDay();
+      
+      const days = Array(firstDay).fill(null).concat([...Array(daysInMonth).keys()].map(i => i + 1));
+      const selectedLogs = logs.filter(l => l.date.startsWith(selected));
+
+      return (
+        <div className="p-6 animate-slide-up pb-24">
+           <div className="flex justify-between items-center mb-6">
+             <h2 className="text-xl font-black text-slate-800">{date.toLocaleString('default', { month: 'long', year: 'numeric' })}</h2>
+             <div className="flex gap-2">
+               <button onClick={()=>setDate(new Date(year, month-1, 1))} className="p-2 bg-white rounded-lg border text-slate-500 hover:bg-slate-50">←</button>
+               <button onClick={()=>setDate(new Date(year, month+1, 1))} className="p-2 bg-white rounded-lg border text-slate-500 hover:bg-slate-50">→</button>
+             </div>
+           </div>
+
+           <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 mb-6">
+             <div className="grid grid-cols-7 text-center mb-2 text-[10px] font-black text-slate-400">
+               {['日','一','二','三','四','五','六'].map(d=><div key={d}>{d}</div>)}
+             </div>
+             <div className="grid grid-cols-7 gap-1">
+               {days.map((d, i) => {
+                 if(!d) return <div key={i}></div>;
+                 const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                 const hasLog = logs.some(l => l.date.startsWith(dateStr));
+                 const isSel = selected === dateStr;
+                 
+                 return (
+                   <button key={i} onClick={()=>setSelected(dateStr)}
+                     className={`aspect-square rounded-xl flex flex-col items-center justify-center relative transition-all ${isSel ? 'bg-slate-800 text-white shadow-lg' : 'hover:bg-slate-50 text-slate-700'}`}>
+                     <span className="text-xs font-bold">{d}</span>
+                     {hasLog && <div className={`w-1 h-1 rounded-full mt-1 ${isSel ? 'bg-blue-400' : 'bg-blue-500'}`}></div>}
+                   </button>
+                 )
+               })}
+             </div>
+           </div>
+
+           <div>
+             <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-4">{selected} 的運動</h3>
+             <div className="space-y-3">
+               {selectedLogs.map(log => {
+                 const config = CATEGORIES.find(c => c.value === log.category);
+                 return (
+                   <div key={log.id} onClick={()=>onEdit(log)} className="bg-white p-4 rounded-3xl border border-slate-100 flex items-center gap-4">
+                     <div className={`w-10 h-10 rounded-xl ${config?.color} flex items-center justify-center text-lg text-white`}>{config?.icon}</div>
+                     <div>
+                       <div className="font-bold text-slate-800 text-sm">{log.subcategory}</div>
+                       <div className="text-[10px] text-slate-400">{log.durationMinutes} min • 強度 {log.effort}</div>
+                     </div>
+                   </div>
+                 )
+               })}
+               {selectedLogs.length === 0 && <div className="text-center py-6 text-slate-400 text-sm bg-white rounded-3xl border border-dashed border-slate-200">本日休息 💤</div>}
+             </div>
+           </div>
+        </div>
+      )
+    }
+
+    // [ExerciseForm] 表單
+    const ExerciseForm = ({ onSave, onCancel, initialData }) => {
+      const [formData, setFormData] = useState(initialData || {
+        category: 'Gym',
+        subcategory: '功能性訓練',
+        date: new Date().toISOString().split('T')[0],
+        durationMinutes: 60,
+        effort: 5,
+        mood: '😊',
+        notes: ''
       });
 
-      const maxHours = Math.max(...last7Days.map(d => d.hours), 1);
-
-      const last30Days = new Date();
-      last30Days.setDate(today.getDate() - 30);
-      const recentLogs = logs.filter(l => new Date(l.date) >= last30Days);
+      const config = CATEGORIES.find(c => c.value === formData.category);
       
-      const categoryStats = CATEGORIES.map(cat => {
-        const count = recentLogs.filter(l => l.category === cat.value).length;
-        return { ...cat, count };
-      }).sort((a, b) => b.count - a.count);
-
-      const totalLogs = recentLogs.length || 1;
-
-      const last10Logs = [...logs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 10);
-      const avgEffort = last10Logs.length ? (last10Logs.reduce((acc, curr) => acc + (curr.effort || 0), 0) / last10Logs.length).toFixed(1) : '0.0';
-      const avgPerf = last10Logs.length ? (last10Logs.reduce((acc, curr) => acc + (curr.performance || 0), 0) / last10Logs.length).toFixed(1) : '0.0';
-
-      return (
-        <div className="p-6 space-y-8 pb-32">
-          <section>
-            <h3 className="text-lg font-black text-slate-800 mb-6 flex items-center gap-2">
-              每週活動量 <span className="text-blue-500">📊</span>
-            </h3>
-            <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
-              <div className="flex items-end justify-between h-48 gap-2">
-                {last7Days.map((data, i) => {
-                  const heightPercentage = (data.hours / maxHours) * 100;
-                  const isToday = i === 6;
-                  return (
-                    <div key={data.date} className="flex-1 flex flex-col items-center gap-2 group">
-                      <div className="relative w-full flex items-end justify-center h-full">
-                        <div 
-                          style={{ height: `${Math.max(heightPercentage, 5)}%` }}
-                          className={`w-full max-w-[20px] rounded-full transition-all duration-500 ease-out ${isToday ? 'bg-blue-600 shadow-lg shadow-blue-200' : 'bg-slate-100 group-hover:bg-slate-200'}`}
-                        />
-                        {data.hours > 0 && (
-                          <span className="absolute -top-6 text-[10px] font-black text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                            {data.hours}h
-                          </span>
-                        )}
-                      </div>
-                      <span className={`text-[10px] font-bold ${isToday ? 'text-blue-600' : 'text-slate-400'}`}>
-                        {data.day}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="mt-6 pt-6 border-t border-slate-50 flex justify-between items-center">
-                 <div>
-                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">週總時數</p>
-                   <p className="text-xl font-black text-slate-800">
-                     {last7Days.reduce((acc, curr) => acc + curr.hours, 0).toFixed(1)} <span className="text-xs text-slate-400">Hours</span>
-                   </p>
-                 </div>
-                 <div className="text-right">
-                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">日平均</p>
-                   <p className="text-xl font-black text-slate-800">
-                     {(last7Days.reduce((acc, curr) => acc + curr.hours, 0) / 7).toFixed(1)} <span className="text-xs text-slate-400">Hours</span>
-                   </p>
-                 </div>
-              </div>
-            </div>
-          </section>
-
-          <section>
-            <h3 className="text-lg font-black text-slate-800 mb-4">近 30 天類別分佈</h3>
-            <div className="space-y-3">
-              {categoryStats.filter(c => c.count > 0).map(cat => (
-                <div key={cat.value} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xl">{cat.icon}</span>
-                      <span className="text-sm font-bold text-slate-700">{cat.value}</span>
-                    </div>
-                    <span className="text-xs font-black text-slate-400">{cat.count} 次</span>
-                  </div>
-                  <div className="w-full h-2 bg-slate-50 rounded-full overflow-hidden">
-                    <div 
-                      style={{ width: `${(cat.count / totalLogs) * 100}%` }}
-                      className={`h-full ${cat.color} rounded-full transition-all duration-1000`}
-                    />
-                  </div>
-                </div>
-              ))}
-              {recentLogs.length === 0 && (
-                <div className="text-center py-10 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
-                  <p className="text-slate-400 text-sm font-medium">近 30 天沒有運動紀錄</p>
-                </div>
-              )}
-            </div>
-          </section>
-
-          <section className="grid grid-cols-2 gap-4">
-            <div className="bg-blue-600 rounded-3xl p-5 text-white shadow-xl shadow-blue-100">
-              <p className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-1">平均強度</p>
-              <p className="text-3xl font-black">{avgEffort}</p>
-              <div className="mt-2 text-[10px] font-bold opacity-80">最近 10 次紀錄</div>
-            </div>
-            <div className="bg-yellow-400 rounded-3xl p-5 text-slate-900 shadow-xl shadow-yellow-100">
-              <p className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-1">平均表現</p>
-              <p className="text-3xl font-black">{avgPerf} <span className="text-sm">⭐</span></p>
-              <div className="mt-2 text-[10px] font-bold opacity-80">最近 10 次紀錄</div>
-            </div>
-          </section>
-        </div>
-      );
-    };
-
-    const CalendarView = ({ logs, onEdit, onDelete }) => {
-      const [viewDate, setViewDate] = useState(new Date());
-      const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-
-      const startOfMonth = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1);
-      const endOfMonth = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0);
-      
-      const startDay = startOfMonth.getDay();
-      const daysInMonth = endOfMonth.getDate();
-      
-      const calendarDays = [];
-      for (let i = 0; i < startDay; i++) calendarDays.push(null);
-      for (let i = 1; i <= daysInMonth; i++) calendarDays.push(new Date(viewDate.getFullYear(), viewDate.getMonth(), i));
-
-      const getLogsForDate = (date) => {
-        const dateStr = date.toISOString().split('T')[0];
-        return logs.filter(l => l.date.split('T')[0] === dateStr);
-      };
-
-      const nextMonth = () => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1));
-      const prevMonth = () => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1));
-
-      const selectedDateLogs = selectedDate ? logs.filter(l => l.date.split('T')[0] === selectedDate) : [];
-
-      return (
-        <div className="p-6 space-y-6 pb-24">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-black text-slate-800">
-              {viewDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
-            </h2>
-            <div className="flex gap-2">
-              <button type="button" onClick={prevMonth} className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-              </button>
-              <button type="button" onClick={nextMonth} className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-              </button>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-3xl p-4 shadow-sm border border-slate-100">
-            <div className="grid grid-cols-7 gap-1 mb-2">
-              {['日', '一', '二', '三', '四', '五', '六'].map(d => (
-                <div key={d} className="text-center text-[10px] font-black text-slate-400 py-2">{d}</div>
-              ))}
-            </div>
-            <div className="grid grid-cols-7 gap-1">
-              {calendarDays.map((day, idx) => {
-                if (!day) return <div key={`empty-${idx}`} className="aspect-square" />;
-                
-                const dateStr = day.toISOString().split('T')[0];
-                const isSelected = selectedDate === dateStr;
-                const dayLogs = getLogsForDate(day);
-                const hasLogs = dayLogs.length > 0;
-                const isToday = new Date().toISOString().split('T')[0] === dateStr;
-
-                return (
-                  <button
-                    key={dateStr}
-                    type="button"
-                    onClick={() => setSelectedDate(dateStr)}
-                    className={`
-                      aspect-square rounded-xl flex flex-col items-center justify-center relative transition-all duration-200
-                      ${isSelected ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'hover:bg-slate-50 text-slate-700'}
-                      ${isToday && !isSelected ? 'border border-blue-200' : ''}
-                    `}
-                  >
-                    <span className={`text-xs font-bold ${isSelected ? 'text-white' : isToday ? 'text-blue-600' : 'text-slate-700'} ${hasLogs ? '-mt-1' : ''}`}>
-                      {day.getDate()}
-                    </span>
-                    {hasLogs && (
-                      <div className="flex gap-0.5 mt-0.5 justify-center">
-                        {dayLogs.slice(0, 2).map((l, i) => {
-                          const config = CATEGORIES.find(c => c.value === l.category);
-                          return (
-                            <span key={l.id + i} className="text-[10px] leading-none">{config?.icon}</span>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div>
-            <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-4">
-              {selectedDate === new Date().toISOString().split('T')[0] ? '今天' : selectedDate} 運動詳情
-            </h3>
-            <div className="space-y-4">
-              {selectedDateLogs.length === 0 ? (
-                <div className="text-center py-8 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
-                  <p className="text-slate-400 text-sm font-medium italic">這天沒有運動紀錄 💤</p>
-                </div>
-              ) : (
-                selectedDateLogs.map(log => {
-                  const catConfig = CATEGORIES.find(c => c.value === log.category);
-                  return (
-                    <div key={log.id} className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm space-y-3">
-                      <div className="flex items-center gap-4">
-                        <div className={`w-12 h-12 rounded-2xl ${catConfig?.color} flex items-center justify-center text-xl shadow-inner text-white flex-shrink-0`}>
-                          {catConfig?.icon}
-                        </div>
-                        <div className="flex-1 overflow-hidden">
-                          <h4 className="font-bold text-slate-800 truncate">{log.subcategory}</h4>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase">{log.category} • {log.durationMinutes / 60} 小時</p>
-                        </div>
-                        <div className="flex gap-1">
-                          <button 
-                            type="button"
-                            onClick={() => onEdit(log)} 
-                            className="p-2 text-slate-300 hover:text-blue-600 transition-all active:scale-90"
-                          >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                          </button>
-                          <button 
-                            type="button"
-                            onClick={() => onDelete(log.id)} 
-                            className="p-2 text-slate-300 hover:text-red-600 transition-all active:scale-90"
-                          >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* 詳細狀態展示區 */}
-                      <div className="grid grid-cols-3 gap-2 p-2 bg-slate-50 rounded-2xl">
-                        <div className="flex flex-col items-center">
-                          <span className="text-[8px] font-black text-slate-400 uppercase">強度</span>
-                          <span className="text-xs font-black text-blue-600">{log.effort || '--'}</span>
-                        </div>
-                        <div className="flex flex-col items-center border-x border-slate-200">
-                          <span className="text-[8px] font-black text-slate-400 uppercase">表現</span>
-                          <div className="flex gap-0.5">
-                            {[1, 2, 3, 4, 5].map(i => (
-                              <span key={i} className={`text-[10px] ${i <= (log.performance || 0) ? "grayscale-0" : "grayscale opacity-20"}`}>
-                                ⭐
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="flex flex-col items-center">
-                          <span className="text-[8px] font-black text-slate-400 uppercase">心情</span>
-                          <span className="text-sm">{log.mood || '😐'}</span>
-                        </div>
-                      </div>
-                      
-                      {log.notes && (
-                        <p className="text-xs text-slate-500 bg-slate-50 p-3 rounded-2xl italic">
-                          "{log.notes}"
-                        </p>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        </div>
-      );
-    };
-
-    const ExerciseForm = ({ onSave, onCancel, initialData }) => {
-      const MOODS = ['🤩', '😊', '😐', '😫', '😡'];
-      const [category, setCategory] = useState(initialData?.category || CATEGORIES[0].value);
-      const [subcategory, setSubcategory] = useState(initialData?.subcategory || '');
-      const [date, setDate] = useState(initialData?.date ? initialData.date.split('T')[0] : new Date().toISOString().split('T')[0]);
-      const [duration, setDuration] = useState(initialData?.durationMinutes || 60);
-      const [effort, setEffort] = useState(initialData?.effort || 5);
-      const [performance, setPerformance] = useState(initialData?.performance || 3);
-      const [mood, setMood] = useState(initialData?.mood || '😊');
-      const [notes, setNotes] = useState(initialData?.notes || '');
-
-      const currentCategoryConfig = CATEGORIES.find(c => c.value === category);
-
+      // 當主類別改變，重置子類別
       useEffect(() => {
-        if (currentCategoryConfig && !currentCategoryConfig.subcategories.includes(subcategory)) {
-          setSubcategory(currentCategoryConfig.subcategories[0]);
+        const currentConfig = CATEGORIES.find(c => c.value === formData.category);
+        if (currentConfig && !currentConfig.subcategories.includes(formData.subcategory)) {
+          setFormData(prev => ({ ...prev, subcategory: currentConfig.subcategories[0] }));
         }
-      }, [category]);
+      }, [formData.category]);
 
       const handleSubmit = (e) => {
         e.preventDefault();
-        const log = {
-          id: initialData?.id || Date.now().toString(),
-          category,
-          subcategory,
-          date: new Date(date).toISOString(),
-          durationMinutes: Number(duration),
-          effort: Number(effort),
-          performance: Number(performance),
-          mood,
-          notes
-        };
-        onSave(log);
+        onSave({ ...formData, id: initialData?.id || Date.now().toString(), date: new Date(formData.date).toISOString() });
       };
 
-      const durationOptions = [];
-      for (let i = 0.5; i <= 6; i += 0.5) {
-        durationOptions.push({
-          label: `${i} 小時`,
-          value: i * 60
-        });
-      }
-
       return (
-        <div className="p-6">
-          <div className="flex items-center justify-between mb-8">
-            <h2 className="text-2xl font-black text-slate-800">{initialData ? '修改運動' : '新增運動紀錄'}</h2>
-            <button type="button" onClick={onCancel} className="p-2 text-slate-400 hover:text-slate-600">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-            </button>
+        <div className="p-6 h-full flex flex-col bg-slate-50 animate-slide-up">
+          <div className="flex justify-between items-center mb-6">
+             <h2 className="text-2xl font-black text-slate-800">{initialData ? '編輯' : '新增'}紀錄</h2>
+             <button onClick={onCancel} className="w-8 h-8 flex items-center justify-center bg-white rounded-full text-slate-400 border shadow-sm">✕</button>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6 pb-24">
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">主類別</label>
-              <div className="grid grid-cols-4 gap-2">
-                {CATEGORIES.map(cat => (
-                  <button
-                    key={cat.value}
-                    type="button"
-                    onClick={() => setCategory(cat.value)}
-                    className={`flex flex-col items-center p-2 rounded-xl border-2 transition-all ${category === cat.value ? 'border-blue-600 bg-blue-50' : 'border-slate-50 bg-white'}`}
-                  >
-                    <span className="text-xl">{cat.icon}</span>
-                    <span className={`text-[10px] font-bold mt-1 ${category === cat.value ? 'text-blue-600' : 'text-slate-400'}`}>{cat.value}</span>
-                  </button>
-                ))}
-              </div>
+            {/* Category Selector */}
+            <div className="grid grid-cols-4 gap-2">
+              {CATEGORIES.map(cat => (
+                <button type="button" key={cat.value} onClick={()=>setFormData({...formData, category: cat.value})}
+                  className={`flex flex-col items-center p-2 rounded-2xl border-2 transition-all ${formData.category===cat.value ? 'border-slate-800 bg-white' : 'border-transparent bg-white opacity-50'}`}>
+                  <span className="text-2xl">{cat.icon}</span>
+                </button>
+              ))}
             </div>
 
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">子類別</label>
-              <select 
-                value={subcategory}
-                onChange={(e) => setSubcategory(e.target.value)}
-                className="w-full p-4 rounded-2xl bg-white border border-slate-100 shadow-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 appearance-none"
-              >
-                {currentCategoryConfig?.subcategories.map(sub => (
-                  <option key={sub} value={sub}>{sub}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">日期</label>
-                <input 
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="w-full p-4 rounded-2xl bg-white border border-slate-100 shadow-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">時長 (小時)</label>
-                <select 
-                  value={duration}
-                  onChange={(e) => setDuration(Number(e.target.value))}
-                  className="w-full p-4 rounded-2xl bg-white border border-slate-100 shadow-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 appearance-none"
-                >
-                  {durationOptions.map(opt => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
+            <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4">
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase">項目</label>
+                <select value={formData.subcategory} onChange={e=>setFormData({...formData, subcategory: e.target.value})}
+                  className="w-full mt-1 p-3 bg-slate-50 rounded-xl font-bold text-slate-700 outline-none">
+                  {config.subcategories.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
-            </div>
-
-            <div className="space-y-6 bg-slate-50 p-5 rounded-3xl border border-slate-100">
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">運動強度 (Effort)</label>
-                  <span className="text-sm font-black text-blue-600 bg-blue-50 px-2 py-1 rounded-lg">{effort}/10</span>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase">日期</label>
+                  <input type="date" value={formData.date} onChange={e=>setFormData({...formData, date: e.target.value})}
+                    className="w-full mt-1 p-3 bg-slate-50 rounded-xl font-bold text-slate-700 outline-none" />
                 </div>
-                <input 
-                  type="range" 
-                  min="1" max="10" 
-                  value={effort} 
-                  onChange={(e) => setEffort(parseInt(e.target.value))}
-                  className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                />
-                <div className="flex justify-between text-[10px] font-bold text-slate-400">
-                  <span>輕鬆</span>
-                  <span>極限</span>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">表現評分 (Performance)</label>
-                <div className="flex justify-between gap-1">
-                  {[1, 2, 3, 4, 5].map(star => (
-                    <button
-                      key={star}
-                      type="button"
-                      onClick={() => setPerformance(star)}
-                      className={`flex-1 py-3 rounded-xl text-2xl transition-all border-2 ${performance >= star ? 'border-yellow-400 bg-yellow-50 scale-105' : 'border-transparent bg-white opacity-40 grayscale'}`}
-                    >
-                      ⭐
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">運動後心情 (Mood)</label>
-                <div className="flex justify-between bg-white p-2 rounded-2xl border border-slate-100 shadow-sm">
-                  {MOODS.map(m => (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => setMood(m)}
-                      className={`w-10 h-10 flex items-center justify-center text-xl rounded-xl transition-all ${mood === m ? 'bg-blue-600 text-white shadow-lg scale-110' : 'hover:bg-slate-50 grayscale opacity-50'}`}
-                    >
-                      {m}
-                    </button>
-                  ))}
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase">時長 (分)</label>
+                  <input type="number" value={formData.durationMinutes} onChange={e=>setFormData({...formData, durationMinutes: Number(e.target.value)})}
+                    className="w-full mt-1 p-3 bg-slate-50 rounded-xl font-bold text-slate-700 outline-none" />
                 </div>
               </div>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">備註 (可選)</label>
-              <textarea 
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="今天感覺如何？"
-                className="w-full p-4 rounded-2xl bg-white border border-slate-100 shadow-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 min-h-[80px]"
-              />
+            <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4">
+               <div>
+                  <div className="flex justify-between">
+                    <label className="text-[10px] font-black text-slate-400 uppercase">強度</label>
+                    <span className="text-xs font-black text-blue-600">{formData.effort}/10</span>
+                  </div>
+                  <input type="range" min="1" max="10" value={formData.effort} onChange={e=>setFormData({...formData, effort: Number(e.target.value)})}
+                    className="w-full mt-2 h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-slate-800" />
+               </div>
+               <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">心情</label>
+                  <div className="flex justify-between">
+                    {['🤩', '😊', '😐', '😫', '😡'].map(m => (
+                      <button type="button" key={m} onClick={()=>setFormData({...formData, mood: m})}
+                        className={`text-2xl transition-transform ${formData.mood===m ? 'scale-125' : 'opacity-40'}`}>{m}</button>
+                    ))}
+                  </div>
+               </div>
+               <div>
+                 <label className="text-[10px] font-black text-slate-400 uppercase">備註</label>
+                 <textarea value={formData.notes} onChange={e=>setFormData({...formData, notes: e.target.value})} placeholder="記錄一下心情..."
+                   className="w-full mt-1 p-3 bg-slate-50 rounded-xl font-bold text-slate-700 outline-none" rows="2"></textarea>
+               </div>
             </div>
 
-            <button 
-              type="submit"
-              className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-2xl shadow-xl shadow-blue-200 transition-all active:scale-95"
-            >
-              {initialData ? '保存修改' : '確認新增'}
+            <button type="submit" className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black shadow-xl shadow-slate-300 active:scale-95 transition-transform">
+              儲存紀錄
             </button>
           </form>
         </div>
       );
-    };
+    }
 
-    // --- 4. APP COMPONENT ---
+    // --- 4. APP ROOT ---
     const App = () => {
       const [view, setView] = useState('dashboard');
       const [logs, setLogs] = useState([]);
       const [editingLog, setEditingLog] = useState(null);
-      const [deleteId, setDeleteId] = useState(null);
       const [user, setUser] = useState(null);
-      const [statusText, setStatusText] = useState('');
-      const [isInitialLoading, setIsInitialLoading] = useState(true);
+      const [status, setStatus] = useState('');
+      const [init, setInit] = useState(true);
 
-      // 初始化
       useEffect(() => {
-        storageService.init((firebaseUser) => {
-          setUser(firebaseUser);
-          setIsInitialLoading(false);
+        storageService.init((u) => {
+          setUser(u);
+          setInit(false);
         });
       }, []);
 
-      // 數據同步邏輯
       useEffect(() => {
-        let unsubscribe = null;
-
-        const syncData = async () => {
-          if (user) {
-            setStatusText('連線中...');
-            const { getFirestore, doc, onSnapshot } = await import('firebase/firestore');
-            const { getApp } = await import('firebase/app');
+        if(init) return;
+        
+        // 載入邏輯：優先讀本地，有 User 則讀雲端
+        const local = storageService.getLocalLogs();
+        setLogs(local);
+        
+        if (user) {
+          setStatus('連線中...');
+          import('firebase/firestore').then(({ doc, onSnapshot, getFirestore, getApp }) => {
             const db = getFirestore(getApp());
-            
-            unsubscribe = onSnapshot(doc(db, "users", user.uid), (docSnap) => {
-              if (docSnap.exists()) {
-                const data = docSnap.data();
-                if (data.logs) {
-                  setLogs(data.logs);
-                  setStatusText('已同步');
-                  localStorage.setItem(STORAGE_KEY, JSON.stringify(data.logs));
-                }
+            onSnapshot(doc(db, "users", user.uid), (snap) => {
+              if (snap.exists() && snap.data().logs) {
+                const cloudLogs = snap.data().logs;
+                setLogs(cloudLogs);
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudLogs));
+                setStatus('已同步');
+              } else if (local.length > 0) {
+                storageService.saveLogs(local, user.uid);
               } else {
-                const local = storageService.getLocalLogs();
-                if (local.length > 0) {
-                  storageService.saveLogs(local, user.uid);
-                  setLogs(local);
-                } else {
-                  setLogs([]);
-                }
-                setStatusText('就緒');
+                setStatus('已連線');
               }
-            }, (error) => {
-              console.error("Sync error", error);
-              setStatusText('離線');
             });
-
-          } else {
-            const localLogs = storageService.getLocalLogs();
-            setLogs(localLogs);
-            setStatusText('本地模式');
-          }
-        };
-
-        if (!isInitialLoading) {
-          syncData();
+          });
+        } else {
+          setStatus('本地模式');
         }
+      }, [user, init]);
 
-        return () => {
-          if (unsubscribe) unsubscribe();
-        };
-      }, [user, isInitialLoading]);
-
-      const saveAndSync = async (newLogs) => {
+      const handleSave = (log) => {
+        let newLogs;
+        if (editingLog) {
+          newLogs = logs.map(l => l.id === log.id ? log : l);
+        } else {
+          newLogs = [log, ...logs];
+        }
         setLogs(newLogs);
-        setStatusText('儲存中...');
-        await storageService.saveLogs(newLogs, user?.uid);
-        setTimeout(() => {
-          setStatusText(user ? '已同步' : '已儲存 (本地)');
-        }, 800);
-      };
-
-      const handleAddLog = (newLog) => {
-        const updated = [newLog, ...logs];
-        saveAndSync(updated);
-        setView('dashboard');
-      };
-
-      const handleUpdateLog = (updatedLog) => {
-        const updated = logs.map(log => log.id === updatedLog.id ? updatedLog : log);
-        saveAndSync(updated);
+        storageService.saveLogs(newLogs, user?.uid);
         setEditingLog(null);
         setView('dashboard');
       };
 
-      const confirmDelete = () => {
-        if (deleteId) {
-          const updated = logs.filter(log => log.id !== deleteId);
-          saveAndSync(updated);
-          setDeleteId(null);
-        }
-      };
-
-      const handleLoginToggle = () => {
-        if (user) {
-          storageService.logout();
-        } else {
-          storageService.login();
-        }
-      };
-
-      const renderView = () => {
-        if (isInitialLoading) {
-          return (
-            <div className="flex flex-col items-center justify-center h-screen bg-slate-50">
-              <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
-              <p className="text-slate-400 font-bold text-sm tracking-widest">啟動中...</p>
-            </div>
-          );
-        }
-
-        switch (view) {
-          case 'dashboard':
-            return <Dashboard logs={logs} onEdit={setEditingLog} onDelete={setDeleteId} onViewChange={setView} />;
-          case 'trends':
-            return <TrendsView logs={logs} />;
-          case 'calendar':
-            return <CalendarView logs={logs} onEdit={setEditingLog} onDelete={setDeleteId} />;
-          case 'add':
-            return (
-              <ExerciseForm 
-                onSave={editingLog ? handleUpdateLog : handleAddLog}
-                onCancel={() => { setEditingLog(null); setView('dashboard'); }}
-                initialData={editingLog || undefined}
-              />
-            );
-          default:
-            return <Dashboard logs={logs} onEdit={setEditingLog} onDelete={setDeleteId} onViewChange={setView} />;
-        }
-      };
+      if (init) return (
+        <div className="h-screen flex flex-col items-center justify-center bg-slate-50">
+          <div className="w-10 h-10 border-4 border-slate-900 border-t-transparent rounded-full animate-spin"></div>
+          <div className="mt-4 text-xs font-bold text-slate-400 tracking-widest uppercase">載入中...</div>
+        </div>
+      );
 
       return (
-        <Layout 
-          activeView={view} 
-          onViewChange={setView}
-          user={user}
-          onLoginToggle={handleLoginToggle}
-          statusText={statusText}
-        >
-          {renderView()}
-
-          {deleteId && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm">
-              <div className="bg-white rounded-3xl p-6 w-full max-w-xs shadow-2xl animate-bounce-in">
-                <h3 className="text-lg font-bold text-slate-900 text-center mb-6">確認刪除紀錄？</h3>
-                <div className="flex gap-3">
-                  <button onClick={() => setDeleteId(null)} className="flex-1 py-3 bg-slate-100 rounded-xl font-bold text-slate-600">取消</button>
-                  <button onClick={confirmDelete} className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold shadow-lg shadow-red-200">刪除</button>
-                </div>
-              </div>
-            </div>
-          )}
+        <Layout activeView={view} onViewChange={setView} user={user} statusText={status} 
+          onLoginToggle={() => user ? storageService.logout() : storageService.login()}>
+          
+          {view === 'dashboard' && <Dashboard logs={logs} onViewChange={setView} onEdit={(l)=>{setEditingLog(l); setView('add');}} />}
+          {view === 'trends' && <TrendsView logs={logs} />}
+          {view === 'calendar' && <CalendarView logs={logs} onEdit={(l)=>{setEditingLog(l); setView('add');}} />}
+          {view === 'add' && <ExerciseForm initialData={editingLog} onSave={handleSave} onCancel={()=>{setEditingLog(null); setView('dashboard');}} />}
+          
         </Layout>
       );
     };
 
-    // --- 5. RENDER ---
-    const rootElement = document.getElementById('root');
-    const root = ReactDOM.createRoot(rootElement);
-    root.render(
-      <React.StrictMode>
-        <App />
-      </React.StrictMode>
-    );
+    // 渲染 Root
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
   </script>
 </body>
 </html>
