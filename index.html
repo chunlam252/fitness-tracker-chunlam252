@@ -49,7 +49,24 @@
 </head>
 <body>
   <div id="root"></div>
-  <!-- 重要：載入主程式，並指定類型為 text/babel -->
-  <script type="text/babel" data-type="module" data-presets="react,typescript" src="./index.tsx"></script>
+  
+  <!-- 將 index.tsx 的邏輯直接寫在這裡，避免 Netlify 找不到外部檔案 -->
+  <script type="text/babel" data-type="module" data-presets="react,typescript">
+    import React from 'react';
+    import ReactDOM from 'react-dom/client';
+    import App from './App.tsx';
+
+    const rootElement = document.getElementById('root');
+    if (!rootElement) {
+      throw new Error("Could not find root element to mount to");
+    }
+
+    const root = ReactDOM.createRoot(rootElement);
+    root.render(
+      <React.StrictMode>
+        <App />
+      </React.StrictMode>
+    );
+  </script>
 </body>
 </html>
