@@ -49,15 +49,15 @@
   <!-- Babel Standalone -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   
-  <!-- Import Map -->
+  <!-- Import Map (UPDATED to use Google CDN to fix Firestore Error) -->
   <script type="importmap">
 {
   "imports": {
     "react": "https://esm.sh/react@18.2.0",
     "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-    "firebase/app": "https://esm.sh/firebase@10.12.0/app",
-    "firebase/auth": "https://esm.sh/firebase@10.12.0/auth",
-    "firebase/firestore": "https://esm.sh/firebase@10.12.0/firestore",
+    "firebase/app": "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js",
+    "firebase/auth": "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js",
+    "firebase/firestore": "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js",
     "react/": "https://esm.sh/react@^19.2.3/"
   }
 }
@@ -108,7 +108,8 @@
         return { auth, db, googleProvider };
       } catch (e) {
         console.error("Firebase Error:", e);
-        return null;
+        // Return null instead of crashing to allow UI to render in offline mode
+        return null; 
       }
     };
 
@@ -119,14 +120,13 @@
         <header className="px-6 py-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0">
           <div>
             <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-              FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v3.8</span>
+              FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.3</span>
             </h1>
             <div className="flex items-center gap-1.5 mt-1">
-              <span className={`w-2 h-2 rounded-full ${status.includes('同步') ? 'bg-green-500 animate-pulse' : 'bg-slate-300'}`}></span>
+              <span className={`w-2 h-2 rounded-full ${status.includes('同步') ? 'bg-green-500 animate-pulse' : status.includes('錯誤') ? 'bg-red-500' : 'bg-slate-300'}`}></span>
               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{status}</p>
             </div>
           </div>
-          {/* Header 登入按鈕已移除，整合到底部導航欄 */}
         </header>
 
         <main className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50 relative">
@@ -141,9 +141,9 @@
           {/* 2. 統計 */}
           <NavBtn active={activeView === 'trends'} onClick={() => setView('trends')} icon="chart" label="統計" />
           
-          {/* 3. 記錄 (中間大掣) */}
-          <div className="flex justify-center -mt-12 relative z-10">
-            <button onClick={() => setView('add')} className="flex flex-col items-center group active:scale-95 transition-transform">
+          {/* 3. 記錄 (中間大掣) - 向上突出設計 */}
+          <div className="flex justify-center -mt-12 relative z-10 pointer-events-none">
+            <button onClick={() => setView('add')} className="pointer-events-auto flex flex-col items-center group active:scale-95 transition-transform">
               <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center text-white shadow-xl shadow-blue-200 border-[6px] border-white ring-1 ring-slate-100">
                 <span className="text-2xl">+</span>
               </div>
@@ -154,7 +154,7 @@
           {/* 4. 日曆 */}
           <NavBtn active={activeView === 'calendar'} onClick={() => setView('calendar')} icon="calendar" label="日曆" />
           
-          {/* 5. 帳戶 (登入/Profile) */}
+          {/* 5. 帳戶 (整合登入/登出) */}
           <button onClick={handleAuth} className={`flex flex-col items-center gap-1 py-2 transition-all ${user ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>
             <div className="h-6 flex items-center justify-center">
               {user?.photoURL ? (
@@ -305,7 +305,7 @@
     };
 
     const Trends = ({ logs }) => {
-      // 1. Weekly Chart
+      // 1. Weekly Data
       const last7 = Array.from({length:7}).map((_,i) => {
         const d = new Date(); d.setDate(d.getDate() - (6-i));
         const dateStr = d.toISOString().split('T')[0];
@@ -314,20 +314,113 @@
       });
       const maxWeekly = Math.max(...last7.map(d=>d.mins), 60);
 
-      // 2. Yearly Breakdown
+      // 2. Yearly Breakdown (UPDATED with COUNT)
       const currentYear = new Date().getFullYear();
       const yearLogs = logs.filter(l => new Date(l.date).getFullYear() === currentYear);
-      
       const breakdown = CATEGORIES.map(cat => {
-        const totalMinutes = yearLogs.filter(l => l.category === cat.value).reduce((a,b)=>a+b.durationMinutes, 0);
-        return { ...cat, totalMinutes, hours: (totalMinutes/60).toFixed(1) };
+        const catLogs = yearLogs.filter(l => l.category === cat.value);
+        const totalMinutes = catLogs.reduce((a,b)=>a+b.durationMinutes, 0);
+        const count = catLogs.length; // Count occurrences
+        return { ...cat, totalMinutes, count, hours: (totalMinutes/60).toFixed(1) };
       }).filter(c => c.totalMinutes > 0).sort((a,b) => b.totalMinutes - a.totalMinutes);
-
+      
       const maxYearlyMinutes = Math.max(...breakdown.map(b => b.totalMinutes), 1);
+      const totalYearlyCount = breakdown.reduce((a,b) => a + b.count, 0);
+
+      // 3. INSIGHTS CALCULATION
+
+      // A. Streak Calculation
+      let streak = 0;
+      const sortedDates = [...new Set(logs.map(l => l.date.split('T')[0]))].sort((a, b) => new Date(b) - new Date(a));
+      if (sortedDates.length > 0) {
+        const today = new Date().toISOString().split('T')[0];
+        const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+        
+        let currentDate = sortedDates[0];
+        // If the last workout was today or yesterday, the streak is alive
+        if (currentDate === today || currentDate === yesterday) {
+          streak = 1;
+          for (let i = 0; i < sortedDates.length - 1; i++) {
+             const curr = new Date(sortedDates[i]);
+             const prev = new Date(sortedDates[i+1]);
+             const diffTime = Math.abs(curr - prev);
+             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+             if (diffDays === 1) streak++;
+             else break;
+          }
+        }
+      }
+
+      // B. Month over Month Growth
+      const now = new Date();
+      const thisMonth = now.getMonth();
+      const thisYear = now.getFullYear();
+      const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastMonth = lastMonthDate.getMonth();
+      const lastMonthYear = lastMonthDate.getFullYear();
+
+      const thisMonthMins = logs.filter(l => {
+         const d = new Date(l.date);
+         return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
+      }).reduce((a,b) => a + b.durationMinutes, 0);
+
+      const lastMonthMins = logs.filter(l => {
+         const d = new Date(l.date);
+         return d.getMonth() === lastMonth && d.getFullYear() === lastMonthYear;
+      }).reduce((a,b) => a + b.durationMinutes, 0);
+
+      let growth = 0;
+      if (lastMonthMins > 0) growth = Math.round(((thisMonthMins - lastMonthMins) / lastMonthMins) * 100);
+      else if (thisMonthMins > 0) growth = 100;
+
+      // C. Average Intensity (Last 30 days)
+      const last30Logs = logs.filter(l => (new Date() - new Date(l.date)) < 30 * 86400000);
+      const avgIntensity = last30Logs.length > 0 
+        ? (last30Logs.reduce((a,b) => a + (b.effort || 5), 0) / last30Logs.length).toFixed(1) 
+        : '-';
+
+      // D. Peak Time / Fav Category
+      const favCategory = breakdown.length > 0 ? breakdown[0].value : '無';
 
       return (
         <div className="p-6 space-y-8 animate-slide-up pb-24">
           
+          {/* New Insights Grid */}
+          <section className="grid grid-cols-2 gap-3">
+             <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm flex flex-col justify-between h-28 relative overflow-hidden group">
+                <div className="absolute right-[-10px] top-[-10px] text-6xl opacity-5 group-hover:scale-110 transition-transform">🔥</div>
+                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest z-10">連續紀錄</div>
+                <div className="z-10">
+                   <div className="text-3xl font-black text-orange-500">{streak}<span className="text-sm font-bold text-slate-400 ml-1">天</span></div>
+                   <div className="text-[10px] text-slate-400 font-bold mt-1">保持熱情！</div>
+                </div>
+             </div>
+
+             <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm flex flex-col justify-between h-28 relative overflow-hidden group">
+                <div className="absolute right-[-10px] top-[-10px] text-6xl opacity-5 group-hover:scale-110 transition-transform">📈</div>
+                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest z-10">本月戰鬥力</div>
+                <div className="z-10">
+                   <div className={`text-3xl font-black ${growth >= 0 ? 'text-green-500' : 'text-slate-400'}`}>
+                     {growth > 0 ? '+' : ''}{growth}<span className="text-sm font-bold text-slate-400 ml-1">%</span>
+                   </div>
+                   <div className="text-[10px] text-slate-400 font-bold mt-1">對比上個月</div>
+                </div>
+             </div>
+
+             <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm flex flex-col justify-between h-24">
+                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">平均強度</div>
+                <div className="flex items-baseline gap-1">
+                   <div className="text-2xl font-black text-blue-600">{avgIntensity}</div>
+                   <div className="text-xs font-bold text-slate-400">/ 10</div>
+                </div>
+             </div>
+
+             <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm flex flex-col justify-between h-24">
+                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">最愛項目</div>
+                <div className="text-xl font-black text-slate-700 truncate">{favCategory}</div>
+             </div>
+          </section>
+
           <section>
             <h3 className="text-lg font-black text-slate-800 mb-4">過去 7 天</h3>
             <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 h-48 flex items-end justify-between gap-2">
@@ -343,7 +436,7 @@
           <section>
             <div className="flex justify-between items-end mb-4">
               <h3 className="text-lg font-black text-slate-800">年度分類統計 ({currentYear})</h3>
-              <span className="text-xs font-bold text-slate-400">總時數</span>
+              <span className="text-xs font-bold text-slate-400">總時數/次數</span>
             </div>
             
             <div className="space-y-3">
@@ -352,7 +445,11 @@
                   <div className="flex items-center gap-3 mb-2">
                     <div className={`w-8 h-8 rounded-lg ${item.color} flex items-center justify-center text-sm text-white`}>{item.icon}</div>
                     <div className="flex-1 font-bold text-slate-700 text-sm">{item.value}</div>
-                    <div className="font-black text-slate-800">{item.hours}<span className="text-xs font-normal text-slate-400 ml-0.5">h</span></div>
+                    {/* UPDATED: Show Count and Hours */}
+                    <div className="text-right">
+                       <span className="font-black text-slate-800 text-sm mr-3">{item.count} <span className="text-[10px] text-slate-400 font-normal">次</span></span>
+                       <span className="font-bold text-slate-400 text-xs">{item.hours}<span className="text-[10px] font-normal ml-0.5">h</span></span>
+                    </div>
                   </div>
                   <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
                     <div style={{width: `${(item.totalMinutes / maxYearlyMinutes) * 100}%`}} className={`h-full ${item.color} opacity-80 rounded-full`}></div>
@@ -368,9 +465,15 @@
             </div>
           </section>
 
-          <div className="bg-blue-600 rounded-3xl p-5 text-white shadow-lg shadow-blue-100">
-             <div className="text-[10px] font-black uppercase opacity-60">年度總時數</div>
-             <div className="text-3xl font-black mt-1">{(yearLogs.reduce((a,b)=>a+b.durationMinutes,0)/60).toFixed(1)}<span className="text-sm ml-1">h</span></div>
+          <div className="bg-blue-600 rounded-3xl p-5 text-white shadow-lg shadow-blue-100 flex justify-between items-center">
+             <div>
+                <div className="text-[10px] font-black uppercase opacity-60">年度總時數</div>
+                <div className="text-3xl font-black mt-1">{(yearLogs.reduce((a,b)=>a+b.durationMinutes,0)/60).toFixed(1)}<span className="text-sm ml-1">h</span></div>
+             </div>
+             <div className="text-right border-l border-white/20 pl-6">
+                <div className="text-[10px] font-black uppercase opacity-60">總次數</div>
+                <div className="text-3xl font-black mt-1">{totalYearlyCount}<span className="text-sm ml-1">次</span></div>
+             </div>
           </div>
         </div>
       );
@@ -498,13 +601,13 @@
                {/* 強度 */}
                <div>
                  <div className="flex justify-between mb-2"><label className="text-[10px] font-black text-slate-400 uppercase">強度 (Effort)</label><span className="text-xs font-black text-blue-600">{data.effort}/10</span></div>
-                 <input type="range" min="1" max="10" value={data.effort} onChange={e=>setData({...data, effort:Number(e.target.value)})} className="w-full h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-slate-800" />
+                 <input type="range" min="1" max="10" value={data.effort} onChange={e=>setData({...data, effort:Number(e.target.value)})} className="w-full h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-slate-800 touch-none" />
                </div>
                
                {/* 表現 */}
                <div>
                  <div className="flex justify-between mb-2"><label className="text-[10px] font-black text-slate-400 uppercase">表現 (Performance)</label><span className="text-xs font-black text-green-600">{data.performance || 5}/10</span></div>
-                 <input type="range" min="1" max="10" value={data.performance || 5} onChange={e=>setData({...data, performance:Number(e.target.value)})} className="w-full h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-green-600" />
+                 <input type="range" min="1" max="10" value={data.performance || 5} onChange={e=>setData({...data, performance:Number(e.target.value)})} className="w-full h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-green-600 touch-none" />
                </div>
 
                {/* 心情 */}
@@ -591,7 +694,14 @@
           else await signInWithPopup(fb.auth, fb.googleProvider);
         } catch (error) {
           console.error("Auth Error:", error);
-          alert("登入錯誤: " + error.message);
+          if (error.code === 'auth/unauthorized-domain') {
+            const domain = window.location.hostname;
+            alert(`⚠️ 網域未授權 (Unauthorized Domain)\n\nFirebase 拒絕了來自 "${domain}" 的請求。\n\n解決方法：\n1. 去 Firebase Console > Authentication > Settings > Authorized domains\n2. 新增網域: ${domain}`);
+          } else if (error.code === 'auth/popup-closed-by-user') {
+             // User closed the popup, no need to alert
+          } else {
+            alert("登入錯誤: " + error.message);
+          }
         }
       }
 
