@@ -28,12 +28,28 @@
     @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
     .animate-slide-up { animation: slideUp 0.3s ease-out forwards; }
     .safe-area-pb { padding-bottom: env(safe-area-inset-bottom, 20px); }
+
+    /* Fix for Desktop Date Picker: Make the calendar indicator cover the whole input */
+    input[type="date"] {
+      position: relative;
+    }
+    input[type="date"]::-webkit-calendar-picker-indicator {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      cursor: pointer;
+    }
   </style>
   
   <!-- Babel Standalone -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   
-  <!-- Import Map: FIXED & CLEANED -->
+  <!-- Import Map -->
   <script type="importmap">
 {
   "imports": {
@@ -103,33 +119,53 @@
         <header className="px-6 py-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0">
           <div>
             <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-              FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v3.0</span>
+              FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v3.8</span>
             </h1>
             <div className="flex items-center gap-1.5 mt-1">
               <span className={`w-2 h-2 rounded-full ${status.includes('同步') ? 'bg-green-500 animate-pulse' : 'bg-slate-300'}`}></span>
               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{status}</p>
             </div>
           </div>
-          <button onClick={handleAuth} className={`p-2 rounded-full border transition-all active:scale-95 ${user ? 'border-blue-100 bg-blue-50' : 'border-slate-200 bg-white'}`}>
-            {user?.photoURL ? <img src={user.photoURL} className="w-8 h-8 rounded-full" alt="User" /> : <div className="w-8 h-8 flex items-center justify-center text-slate-400">👤</div>}
-          </button>
+          {/* Header 登入按鈕已移除，整合到底部導航欄 */}
         </header>
 
         <main className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50 relative">
           {children}
         </main>
 
-        <nav className="shrink-0 bg-white border-t border-slate-100 flex justify-around items-end pb-6 pt-3 px-2 z-30 safe-area-pb shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)]">
+        <nav className="shrink-0 bg-white border-t border-slate-100 grid grid-cols-5 items-end pb-6 pt-2 px-2 z-30 safe-area-pb shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)]">
+          
+          {/* 1. 主頁 */}
           <NavBtn active={activeView === 'dashboard'} onClick={() => setView('dashboard')} icon="home" label="主頁" />
-          <NavBtn active={activeView === 'trends'} onClick={() => setView('trends')} icon="chart" label="趨勢" />
-          <button onClick={() => setView('add')} className="flex flex-col items-center -mt-10 group active:scale-95 transition-transform">
-            <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center text-white shadow-xl shadow-blue-200 border-[6px] border-white ring-1 ring-slate-100">
-              <span className="text-2xl">+</span>
-            </div>
-            <span className="text-[10px] font-bold text-blue-600 mt-1">紀錄</span>
-          </button>
+          
+          {/* 2. 統計 */}
+          <NavBtn active={activeView === 'trends'} onClick={() => setView('trends')} icon="chart" label="統計" />
+          
+          {/* 3. 記錄 (中間大掣) */}
+          <div className="flex justify-center -mt-12 relative z-10">
+            <button onClick={() => setView('add')} className="flex flex-col items-center group active:scale-95 transition-transform">
+              <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center text-white shadow-xl shadow-blue-200 border-[6px] border-white ring-1 ring-slate-100">
+                <span className="text-2xl">+</span>
+              </div>
+              <span className="text-[10px] font-bold text-blue-600 mt-1">紀錄</span>
+            </button>
+          </div>
+
+          {/* 4. 日曆 */}
           <NavBtn active={activeView === 'calendar'} onClick={() => setView('calendar')} icon="calendar" label="日曆" />
-          <NavBtn active={false} onClick={() => alert('即將推出')} icon="menu" label="更多" />
+          
+          {/* 5. 帳戶 (登入/Profile) */}
+          <button onClick={handleAuth} className={`flex flex-col items-center gap-1 py-2 transition-all ${user ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>
+            <div className="h-6 flex items-center justify-center">
+              {user?.photoURL ? (
+                <img src={user.photoURL} className={`w-6 h-6 rounded-full border border-slate-200 ${user ? 'ring-2 ring-blue-100' : ''}`} alt="User" />
+              ) : (
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+              )}
+            </div>
+            <span className="text-[10px] font-bold">{user ? '帳戶' : '登入'}</span>
+          </button>
+        
         </nav>
       </div>
     );
@@ -138,12 +174,13 @@
       const icons = {
         home: <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>,
         chart: <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>,
-        calendar: <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>,
-        menu: <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+        calendar: <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
       };
       return (
-        <button onClick={onClick} className={`flex flex-col items-center gap-1 flex-1 py-2 transition-all ${active ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>
-          {icons[icon]}
+        <button onClick={onClick} className={`flex flex-col items-center gap-1 py-2 transition-all ${active ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>
+          <div className="h-6 flex items-center justify-center">
+            {icons[icon]}
+          </div>
           <span className="text-[10px] font-bold">{label}</span>
         </button>
       );
@@ -154,6 +191,52 @@
       const last = sorted[0];
       const daysSince = last ? Math.floor((new Date() - new Date(last.date))/(86400000)) : '-';
       
+      // Calculate Stats
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      
+      // This Year Active Days
+      const yearLogs = logs.filter(l => new Date(l.date).getFullYear() === currentYear);
+      const uniqueDaysThisYear = new Set(yearLogs.map(l => l.date.split('T')[0])).size;
+
+      // This Week Count
+      const startOfWeek = new Date(now);
+      startOfWeek.setDate(now.getDate() - now.getDay()); // Sunday
+      startOfWeek.setHours(0,0,0,0);
+      const thisWeekCount = logs.filter(l => new Date(l.date) >= startOfWeek).length;
+      
+      // Mood Calc
+      const last5 = sorted.slice(0, 5);
+      const moodMap = { '🤩': 5, '😊': 4, '😐': 3, '😫': 2, '😡': 1 };
+      let avgMoodScore = 0;
+      let moodText = '暫無';
+      if(last5.length > 0) {
+        const total = last5.reduce((acc, l) => acc + (moodMap[l.mood] || 3), 0);
+        avgMoodScore = total / last5.length;
+        if (avgMoodScore >= 4.5) moodText = '🤩 絕佳';
+        else if (avgMoodScore >= 3.5) moodText = '😊 不錯';
+        else if (avgMoodScore >= 2.5) moodText = '😐 普通';
+        else if (avgMoodScore >= 1.5) moodText = '😫 疲累';
+        else moodText = '😡 糟糕';
+      }
+
+      // Helper for category stats
+      const getCategoryStats = (cat) => {
+        const catLogs = logs.filter(l => l.category === cat).sort((a,b) => new Date(b.date) - new Date(a.date));
+        if (catLogs.length === 0) return { days: null, text: '無紀錄', color: 'text-slate-300' };
+        
+        const diff = Math.floor((new Date() - new Date(catLogs[0].date))/(86400000));
+        let text = `${diff} 天前`;
+        let color = 'text-slate-500';
+        
+        if (diff === 0) { text = '今天'; color = 'text-green-500'; }
+        else if (diff === 1) { text = '昨天'; color = 'text-blue-500'; }
+        else if (diff > 14) { text = `${diff} 天沒做!`; color = 'text-red-500 font-bold'; }
+        else if (diff > 7) { text = `${diff} 天前`; color = 'text-orange-500'; }
+        
+        return { days: diff, text, color };
+      };
+
       return (
         <div className="p-6 space-y-6 animate-slide-up">
           <div className="bg-slate-900 rounded-[2rem] p-6 text-white shadow-xl shadow-slate-200 relative overflow-hidden">
@@ -162,23 +245,33 @@
               <div>
                 <div className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">上次運動</div>
                 <div className="text-4xl font-black">{daysSince}<span className="text-sm text-slate-500 ml-1">天前</span></div>
+                <div className="mt-4">
+                   <div className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">本週次數</div>
+                   <div className="text-xl font-bold text-slate-200">{thisWeekCount} <span className="text-xs font-normal">次</span></div>
+                </div>
               </div>
-              <div className="border-l border-white/10 pl-8">
-                <div className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">總紀錄</div>
-                <div className="text-4xl font-black text-blue-400">{logs.length}</div>
+              <div className="border-l border-white/10 pl-8 flex flex-col justify-between">
+                <div>
+                  <div className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">本年活躍</div>
+                  <div className="text-3xl font-black text-blue-400">{uniqueDaysThisYear}<span className="text-sm text-slate-500 ml-1">日</span></div>
+                </div>
+                <div>
+                   <div className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">近期心情</div>
+                   <div className="text-lg font-bold">{moodText}</div>
+                </div>
               </div>
             </div>
           </div>
 
           <div className="grid grid-cols-3 gap-3">
-            {['Gym','羽毛球','跑步'].map(cat => {
+            {['Gym','羽毛球','排球'].map(cat => {
               const c = CATEGORIES.find(x=>x.value===cat);
-              const has = logs.find(x=>x.category===cat);
+              const stats = getCategoryStats(cat);
               return (
                 <div key={cat} className="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center gap-1">
                   <span className="text-2xl">{c.icon}</span>
                   <span className="text-[10px] font-bold text-slate-500">{cat}</span>
-                  <span className={`text-[10px] font-black ${has ? 'text-green-500' : 'text-slate-300'}`}>{has ? '活躍' : '無紀錄'}</span>
+                  <span className={`text-[10px] font-black ${stats.color}`}>{stats.text}</span>
                 </div>
               )
             })}
@@ -197,7 +290,9 @@
                     <div className={`w-12 h-12 rounded-2xl ${c?.color} flex items-center justify-center text-xl text-white shadow-inner`}>{c?.icon}</div>
                     <div className="flex-1">
                       <h4 className="font-bold text-slate-800 text-sm">{l.subcategory}</h4>
-                      <div className="text-[10px] font-bold text-slate-400 uppercase mt-0.5">{new Date(l.date).toLocaleDateString()} • {l.durationMinutes} min</div>
+                      <div className="text-[10px] font-bold text-slate-400 uppercase mt-0.5">
+                        {new Date(l.date).toLocaleDateString()} • {l.durationMinutes} min • {l.mood || '😐'}
+                      </div>
                     </div>
                   </div>
                 )
@@ -210,28 +305,72 @@
     };
 
     const Trends = ({ logs }) => {
+      // 1. Weekly Chart
       const last7 = Array.from({length:7}).map((_,i) => {
         const d = new Date(); d.setDate(d.getDate() - (6-i));
         const dateStr = d.toISOString().split('T')[0];
         const mins = logs.filter(l=>l.date.startsWith(dateStr)).reduce((a,b)=>a+b.durationMinutes,0);
         return { day: d.getDate(), mins, isToday: i===6 };
       });
-      const max = Math.max(...last7.map(d=>d.mins), 60);
+      const maxWeekly = Math.max(...last7.map(d=>d.mins), 60);
+
+      // 2. Yearly Breakdown
+      const currentYear = new Date().getFullYear();
+      const yearLogs = logs.filter(l => new Date(l.date).getFullYear() === currentYear);
+      
+      const breakdown = CATEGORIES.map(cat => {
+        const totalMinutes = yearLogs.filter(l => l.category === cat.value).reduce((a,b)=>a+b.durationMinutes, 0);
+        return { ...cat, totalMinutes, hours: (totalMinutes/60).toFixed(1) };
+      }).filter(c => c.totalMinutes > 0).sort((a,b) => b.totalMinutes - a.totalMinutes);
+
+      const maxYearlyMinutes = Math.max(...breakdown.map(b => b.totalMinutes), 1);
 
       return (
-        <div className="p-6 space-y-6 animate-slide-up">
-          <h3 className="text-lg font-black text-slate-800">每週活動量</h3>
-          <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 h-48 flex items-end justify-between gap-2">
-             {last7.map((d,i) => (
-               <div key={i} className="flex-1 flex flex-col items-center gap-2 h-full justify-end">
-                 <div style={{height: `${(d.mins/max)*100}%`}} className={`w-full max-w-[16px] rounded-full min-h-[6px] transition-all ${d.isToday ? 'bg-blue-500 shadow-lg shadow-blue-200' : 'bg-slate-100'}`}></div>
-                 <span className="text-[10px] font-bold text-slate-400">{d.day}</span>
-               </div>
-             ))}
-          </div>
+        <div className="p-6 space-y-8 animate-slide-up pb-24">
+          
+          <section>
+            <h3 className="text-lg font-black text-slate-800 mb-4">過去 7 天</h3>
+            <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 h-48 flex items-end justify-between gap-2">
+               {last7.map((d,i) => (
+                 <div key={i} className="flex-1 flex flex-col items-center gap-2 h-full justify-end">
+                   <div style={{height: `${(d.mins/maxWeekly)*100}%`}} className={`w-full max-w-[16px] rounded-full min-h-[6px] transition-all ${d.isToday ? 'bg-blue-500 shadow-lg shadow-blue-200' : 'bg-slate-100'}`}></div>
+                   <span className="text-[10px] font-bold text-slate-400">{d.day}</span>
+                 </div>
+               ))}
+            </div>
+          </section>
+
+          <section>
+            <div className="flex justify-between items-end mb-4">
+              <h3 className="text-lg font-black text-slate-800">年度分類統計 ({currentYear})</h3>
+              <span className="text-xs font-bold text-slate-400">總時數</span>
+            </div>
+            
+            <div className="space-y-3">
+              {breakdown.map(item => (
+                <div key={item.value} className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className={`w-8 h-8 rounded-lg ${item.color} flex items-center justify-center text-sm text-white`}>{item.icon}</div>
+                    <div className="flex-1 font-bold text-slate-700 text-sm">{item.value}</div>
+                    <div className="font-black text-slate-800">{item.hours}<span className="text-xs font-normal text-slate-400 ml-0.5">h</span></div>
+                  </div>
+                  <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                    <div style={{width: `${(item.totalMinutes / maxYearlyMinutes) * 100}%`}} className={`h-full ${item.color} opacity-80 rounded-full`}></div>
+                  </div>
+                </div>
+              ))}
+              
+              {breakdown.length === 0 && (
+                <div className="text-center py-8 text-slate-400 text-sm bg-white rounded-3xl border border-dashed">
+                  今年尚未開始運動，加油！💪
+                </div>
+              )}
+            </div>
+          </section>
+
           <div className="bg-blue-600 rounded-3xl p-5 text-white shadow-lg shadow-blue-100">
-             <div className="text-[10px] font-black uppercase opacity-60">總時數</div>
-             <div className="text-3xl font-black mt-1">{(logs.reduce((a,b)=>a+b.durationMinutes,0)/60).toFixed(1)}<span className="text-sm ml-1">h</span></div>
+             <div className="text-[10px] font-black uppercase opacity-60">年度總時數</div>
+             <div className="text-3xl font-black mt-1">{(yearLogs.reduce((a,b)=>a+b.durationMinutes,0)/60).toFixed(1)}<span className="text-sm ml-1">h</span></div>
           </div>
         </div>
       );
@@ -266,12 +405,14 @@
                {days.map((d,i) => {
                  if(!d) return <div key={i}></div>;
                  const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-                 const has = logs.some(l=>l.date.startsWith(ds));
+                 const logsForDay = logs.filter(l=>l.date.startsWith(ds));
+                 const mainIcon = logsForDay.length > 0 ? CATEGORIES.find(c=>c.value===logsForDay[0].category)?.icon : null;
+                 
                  const isSel = sel === ds;
                  return (
-                   <button key={i} onClick={()=>setSel(ds)} className={`aspect-square rounded-xl flex flex-col items-center justify-center relative ${isSel ? 'bg-slate-800 text-white shadow-lg' : 'hover:bg-slate-50 text-slate-700'}`}>
+                   <button key={i} onClick={()=>setSel(ds)} className={`aspect-square rounded-xl flex flex-col items-center justify-center relative transition-all ${isSel ? 'bg-slate-800 text-white shadow-lg' : 'hover:bg-slate-50 text-slate-700'}`}>
                      <span className="text-xs font-bold">{d}</span>
-                     {has && <div className={`w-1 h-1 rounded-full mt-1 ${isSel?'bg-blue-400':'bg-blue-500'}`}></div>}
+                     {mainIcon && <span className="text-[10px] -mt-1 leading-none pt-1">{mainIcon}</span>}
                    </button>
                  )
                })}
@@ -283,7 +424,7 @@
                return (
                  <div key={l.id} onClick={()=>onEdit(l)} className="bg-white p-4 rounded-3xl border border-slate-100 flex items-center gap-4">
                    <div className={`w-10 h-10 rounded-xl ${c?.color} flex items-center justify-center text-lg text-white`}>{c?.icon}</div>
-                   <div><div className="font-bold text-slate-800 text-sm">{l.subcategory}</div><div className="text-[10px] text-slate-400">{l.durationMinutes} min</div></div>
+                   <div><div className="font-bold text-slate-800 text-sm">{l.subcategory}</div><div className="text-[10px] text-slate-400">{l.durationMinutes} min • 表現 {l.performance || '-'}</div></div>
                  </div>
                )
              })}
@@ -295,7 +436,7 @@
 
     const Form = ({ onSave, onCancel, initData }) => {
       const [data, setData] = useState(initData || {
-        category: 'Gym', subcategory: '功能性訓練', date: new Date().toISOString().split('T')[0], durationMinutes: 60, effort: 5, mood: '😊', notes: ''
+        category: 'Gym', subcategory: '功能性訓練', date: new Date().toISOString().split('T')[0], durationMinutes: 60, effort: 5, performance: 5, mood: '😊', notes: ''
       });
       const cfg = CATEGORIES.find(c=>c.value===data.category);
 
@@ -303,6 +444,19 @@
         const c = CATEGORIES.find(x=>x.value===data.category);
         if(c && !c.subcategories.includes(data.subcategory)) setData(d=>({...d, subcategory:c.subcategories[0]}));
       }, [data.category]);
+
+      const timeOptions = [
+        { val: 30, label: '30 分鐘' },
+        { val: 60, label: '1 小時' },
+        { val: 90, label: '1.5 小時' },
+        { val: 120, label: '2 小時' },
+        { val: 150, label: '2.5 小時' },
+        { val: 180, label: '3 小時' },
+        { val: 210, label: '3.5 小時' },
+        { val: 240, label: '4 小時' },
+      ];
+      
+      const moods = ['🤩', '😊', '😐', '😫', '😡'];
 
       return (
         <div className="p-6 h-full flex flex-col bg-slate-50 animate-slide-up">
@@ -321,14 +475,57 @@
             <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4">
                <div><label className="text-[10px] font-black text-slate-400 uppercase">項目</label><select value={data.subcategory} onChange={e=>setData({...data, subcategory:e.target.value})} className="w-full mt-1 p-3 bg-slate-50 rounded-xl font-bold text-slate-700 outline-none">{cfg.subcategories.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
                <div className="grid grid-cols-2 gap-4">
-                 <div><label className="text-[10px] font-black text-slate-400 uppercase">日期</label><input type="date" value={data.date} onChange={e=>setData({...data, date:e.target.value})} className="w-full mt-1 p-3 bg-slate-50 rounded-xl font-bold text-slate-700 outline-none" /></div>
-                 <div><label className="text-[10px] font-black text-slate-400 uppercase">時長</label><input type="number" value={data.durationMinutes} onChange={e=>setData({...data, durationMinutes:Number(e.target.value)})} className="w-full mt-1 p-3 bg-slate-50 rounded-xl font-bold text-slate-700 outline-none" /></div>
+                 <div>
+                   <label className="text-[10px] font-black text-slate-400 uppercase">日期</label>
+                   <input 
+                     type="date" 
+                     value={data.date} 
+                     onChange={e=>setData({...data, date:e.target.value})} 
+                     // 用 CSS hack 解決電腦版問題，無需 onClick handler
+                     className="w-full mt-1 p-3 bg-slate-50 rounded-xl font-bold text-slate-700 outline-none cursor-pointer" 
+                   />
+                 </div>
+                 <div>
+                   <label className="text-[10px] font-black text-slate-400 uppercase">時長</label>
+                   <select value={data.durationMinutes} onChange={e=>setData({...data, durationMinutes:Number(e.target.value)})} className="w-full mt-1 p-3 bg-slate-50 rounded-xl font-bold text-slate-700 outline-none">
+                     {timeOptions.map(opt => <option key={opt.val} value={opt.val}>{opt.label}</option>)}
+                   </select>
+                 </div>
                </div>
             </div>
-            <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
-               <div className="flex justify-between"><label className="text-[10px] font-black text-slate-400 uppercase">強度</label><span className="text-xs font-black text-blue-600">{data.effort}/10</span></div>
-               <input type="range" min="1" max="10" value={data.effort} onChange={e=>setData({...data, effort:Number(e.target.value)})} className="w-full mt-2 h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-slate-800" />
+            
+            <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-5">
+               {/* 強度 */}
+               <div>
+                 <div className="flex justify-between mb-2"><label className="text-[10px] font-black text-slate-400 uppercase">強度 (Effort)</label><span className="text-xs font-black text-blue-600">{data.effort}/10</span></div>
+                 <input type="range" min="1" max="10" value={data.effort} onChange={e=>setData({...data, effort:Number(e.target.value)})} className="w-full h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-slate-800" />
+               </div>
+               
+               {/* 表現 */}
+               <div>
+                 <div className="flex justify-between mb-2"><label className="text-[10px] font-black text-slate-400 uppercase">表現 (Performance)</label><span className="text-xs font-black text-green-600">{data.performance || 5}/10</span></div>
+                 <input type="range" min="1" max="10" value={data.performance || 5} onChange={e=>setData({...data, performance:Number(e.target.value)})} className="w-full h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-green-600" />
+               </div>
+
+               {/* 心情 */}
+               <div>
+                 <label className="text-[10px] font-black text-slate-400 uppercase mb-3 block">心情 (Mood)</label>
+                 <div className="flex justify-between px-2">
+                   {moods.map(m => (
+                     <button key={m} onClick={()=>setData({...data, mood: m})} 
+                       className={`text-3xl transition-all ${data.mood === m ? 'scale-125 drop-shadow-md' : 'opacity-40 grayscale hover:opacity-100 hover:grayscale-0'}`}>
+                       {m}
+                     </button>
+                   ))}
+                 </div>
+               </div>
             </div>
+
+            <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
+               <label className="text-[10px] font-black text-slate-400 uppercase">備註</label>
+               <textarea value={data.notes} onChange={e=>setData({...data, notes:e.target.value})} placeholder="今天感覺如何..." className="w-full mt-2 p-3 bg-slate-50 rounded-xl font-bold text-slate-700 outline-none" rows="2"></textarea>
+            </div>
+
             <button onClick={()=>onSave({...data, id:initData?.id||Date.now().toString(), date:new Date(data.date).toISOString()})} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black shadow-xl shadow-slate-300 active:scale-95 transition-transform">儲存紀錄</button>
           </div>
         </div>
@@ -389,8 +586,13 @@
       const handleAuth = async () => {
         const fb = initFirebase();
         if(!fb) return;
-        if(user) await signOut(fb.auth);
-        else await signInWithPopup(fb.auth, fb.googleProvider);
+        try {
+          if(user) await signOut(fb.auth);
+          else await signInWithPopup(fb.auth, fb.googleProvider);
+        } catch (error) {
+          console.error("Auth Error:", error);
+          alert("登入錯誤: " + error.message);
+        }
       }
 
       return (
