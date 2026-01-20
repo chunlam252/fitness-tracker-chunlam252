@@ -27,6 +27,13 @@
     
     @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
     .animate-slide-up { animation: slideUp 0.3s ease-out forwards; }
+    
+    /* Modal Animations */
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .animate-fade-in { animation: fadeIn 0.2s ease-out forwards; }
+    @keyframes scaleUp { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    .animate-scale-up { animation: scaleUp 0.2s ease-out forwards; }
+
     .safe-area-pb { padding-bottom: env(safe-area-inset-bottom, 20px); }
 
     /* Fix for Desktop Date Picker: Make the calendar indicator cover the whole input */
@@ -71,8 +78,9 @@
     import React, { useState, useEffect } from 'react';
     import ReactDOM from 'react-dom/client';
     import { initializeApp, getApps, getApp } from 'firebase/app';
-    import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
-    import { getAuth, onAuthStateChanged, signInWithPopup, signOut, GoogleAuthProvider } from 'firebase/auth';
+    import { getFirestore, doc, setDoc, onSnapshot, getDoc } from 'firebase/firestore';
+    // 加入 signInWithRedirect, getRedirectResult, setPersistence, browserLocalPersistence
+    import { getAuth, onAuthStateChanged, signInWithRedirect, getRedirectResult, signOut, GoogleAuthProvider, setPersistence, browserLocalPersistence } from 'firebase/auth';
 
     // --- CONFIG ---
     const CATEGORIES = [
@@ -120,11 +128,11 @@
         <header className="px-6 py-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0">
           <div>
             <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-              FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.3</span>
+              FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.10</span>
             </h1>
             <div className="flex items-center gap-1.5 mt-1">
-              <span className={`w-2 h-2 rounded-full ${status.includes('同步') ? 'bg-green-500 animate-pulse' : status.includes('錯誤') ? 'bg-red-500' : 'bg-slate-300'}`}></span>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{status}</p>
+              <span className={`w-2 h-2 rounded-full transition-colors duration-300 ${status.includes('同步') ? 'bg-green-500' : status.includes('上傳') ? 'bg-yellow-400 animate-pulse' : status.includes('錯誤') ? 'bg-red-500' : 'bg-slate-300'}`}></span>
+              <p className={`text-[10px] font-bold uppercase tracking-wider transition-colors duration-300 ${status.includes('錯誤') ? 'text-red-500' : status.includes('上傳') ? 'text-yellow-600' : 'text-slate-400'}`}>{status}</p>
             </div>
           </div>
         </header>
@@ -290,9 +298,26 @@
                     <div className={`w-12 h-12 rounded-2xl ${c?.color} flex items-center justify-center text-xl text-white shadow-inner`}>{c?.icon}</div>
                     <div className="flex-1">
                       <h4 className="font-bold text-slate-800 text-sm">{l.subcategory}</h4>
-                      <div className="text-[10px] font-bold text-slate-400 uppercase mt-0.5">
-                        {new Date(l.date).toLocaleDateString()} • {l.durationMinutes} min • {l.mood || '😐'}
+                      <div className="text-[10px] font-bold text-slate-400 uppercase mt-0.5 flex flex-wrap gap-2 items-center">
+                        <span>{new Date(l.date).toLocaleDateString()} • {l.durationMinutes} min • {l.mood || '😐'}</span>
                       </div>
+                      
+                      {/* UPDATED: Collapsed Friend List Logic */}
+                      {l.friends && l.friends.length > 0 && (
+                        <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] text-slate-400">👥</span>
+                          {l.friends.slice(0, 2).map(f => (
+                            <span key={f} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-600">
+                              {f}
+                            </span>
+                          ))}
+                          {l.friends.length > 2 && (
+                             <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">
+                               +{l.friends.length - 2}
+                             </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )
@@ -381,6 +406,26 @@
 
       // D. Peak Time / Fav Category
       const favCategory = breakdown.length > 0 ? breakdown[0].value : '無';
+      
+      // E. Best Partners (Friends) Stats (UPDATED Logic for Category Breakdown)
+      const friendStats = {}; // { "Name": { total: 0, cats: { "Badminton": 2, "Volleyball": 1 } } }
+      
+      yearLogs.forEach(log => {
+        if(log.friends && Array.isArray(log.friends)) {
+          log.friends.forEach(f => {
+            if (!friendStats[f]) friendStats[f] = { total: 0, cats: {} };
+            friendStats[f].total += 1;
+            
+            // Count category frequency
+            const cat = log.category;
+            friendStats[f].cats[cat] = (friendStats[f].cats[cat] || 0) + 1;
+          });
+        }
+      });
+
+      const topFriends = Object.entries(friendStats)
+        .sort((a,b) => b[1].total - a[1].total)
+        .slice(0, 5); // Show top 5
 
       return (
         <div className="p-6 space-y-8 animate-slide-up pb-24">
@@ -420,6 +465,55 @@
                 <div className="text-xl font-black text-slate-700 truncate">{favCategory}</div>
              </div>
           </section>
+
+          {/* Best Partners Section (UPDATED Design with Sport Icons) */}
+          {topFriends.length > 0 && (
+            <section>
+              <h3 className="text-lg font-black text-slate-800 mb-4 flex items-center gap-2">
+                <span>最佳拍檔</span>
+                <span className="text-xs font-normal bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">Top 5</span>
+              </h3>
+              <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
+                <div className="space-y-4">
+                  {topFriends.map(([name, stats], index) => {
+                    // Sort categories for this friend
+                    const topCats = Object.entries(stats.cats)
+                      .sort((a,b) => b[1] - a[1])
+                      .slice(0, 3); // Get top 3 sports with this friend
+
+                    return (
+                      <div key={name} className="flex items-start gap-4">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold mt-1 shrink-0 ${index === 0 ? 'bg-yellow-400 text-white ring-4 ring-yellow-50' : index === 1 ? 'bg-slate-300 text-white' : index === 2 ? 'bg-orange-300 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                          {index + 1}
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex justify-between items-baseline">
+                             <div className="font-bold text-slate-700">{name}</div>
+                             <div className="text-xs font-bold text-slate-400">{stats.total} 次</div>
+                          </div>
+                          <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1 mb-2">
+                            <div style={{width: `${(stats.total / topFriends[0][1].total) * 100}%`}} className="h-full bg-blue-500 rounded-full opacity-80"></div>
+                          </div>
+                          {/* Micro Stats for Sports */}
+                          <div className="flex gap-3 text-[10px] font-bold text-slate-500">
+                            {topCats.map(([cat, count]) => {
+                               const catIcon = CATEGORIES.find(c => c.value === cat)?.icon || '✨';
+                               return (
+                                 <span key={cat} className="flex items-center gap-1 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
+                                   <span>{catIcon}</span>
+                                   <span>x{count}</span>
+                                 </span>
+                               )
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </section>
+          )}
 
           <section>
             <h3 className="text-lg font-black text-slate-800 mb-4">過去 7 天</h3>
@@ -527,7 +621,21 @@
                return (
                  <div key={l.id} onClick={()=>onEdit(l)} className="bg-white p-4 rounded-3xl border border-slate-100 flex items-center gap-4">
                    <div className={`w-10 h-10 rounded-xl ${c?.color} flex items-center justify-center text-lg text-white`}>{c?.icon}</div>
-                   <div><div className="font-bold text-slate-800 text-sm">{l.subcategory}</div><div className="text-[10px] text-slate-400">{l.durationMinutes} min • 表現 {l.performance || '-'}</div></div>
+                   <div className="flex-1">
+                     <div className="font-bold text-slate-800 text-sm">{l.subcategory}</div>
+                     <div className="text-[10px] text-slate-400">
+                       {l.durationMinutes} min • 表現 {l.performance || '-'}
+                     </div>
+                     {l.friends && l.friends.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {l.friends.map(f => (
+                            <span key={f} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-600">
+                              👥 {f}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                   </div>
                  </div>
                )
              })}
@@ -537,16 +645,49 @@
       )
     }
 
-    const Form = ({ onSave, onCancel, initData }) => {
+    const Form = ({ onSave, onCancel, onDelete, initData, allLogs }) => {
       const [data, setData] = useState(initData || {
-        category: 'Gym', subcategory: '功能性訓練', date: new Date().toISOString().split('T')[0], durationMinutes: 60, effort: 5, performance: 5, mood: '😊', notes: ''
+        category: 'Gym', 
+        subcategory: '功能性訓練', 
+        date: new Date().toISOString().split('T')[0], 
+        durationMinutes: 60, 
+        effort: 5, 
+        performance: 5, 
+        mood: '😊', 
+        notes: '',
+        friends: [] // Array of strings
       });
+      const [friendInput, setFriendInput] = useState('');
+      const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
       const cfg = CATEGORIES.find(c=>c.value===data.category);
+
+      // Get unique friends sorted by frequency
+      const suggestedFriends = React.useMemo(() => {
+        const counts = {};
+        (allLogs || []).forEach(log => {
+          if (log.friends && Array.isArray(log.friends)) {
+            log.friends.forEach(f => counts[f] = (counts[f] || 0) + 1);
+          }
+        });
+        return Object.keys(counts).sort((a,b) => counts[b] - counts[a]).slice(0, 10);
+      }, [allLogs]);
 
       useEffect(() => {
         const c = CATEGORIES.find(x=>x.value===data.category);
         if(c && !c.subcategories.includes(data.subcategory)) setData(d=>({...d, subcategory:c.subcategories[0]}));
       }, [data.category]);
+
+      const addFriend = (name) => {
+        const val = name.trim();
+        if(val && !data.friends.includes(val)) {
+          setData(prev => ({...prev, friends: [...(prev.friends || []), val]}));
+          setFriendInput('');
+        }
+      };
+
+      const removeFriend = (name) => {
+        setData(prev => ({...prev, friends: prev.friends.filter(f => f !== name)}));
+      };
 
       const timeOptions = [
         { val: 30, label: '30 分鐘' },
@@ -562,7 +703,7 @@
       const moods = ['🤩', '😊', '😐', '😫', '😡'];
 
       return (
-        <div className="p-6 h-full flex flex-col bg-slate-50 animate-slide-up">
+        <div className="p-6 h-full flex flex-col bg-slate-50 animate-slide-up relative">
           <div className="flex justify-between items-center mb-6">
              <h2 className="text-2xl font-black text-slate-800">{initData?'編輯':'新增'}</h2>
              <button onClick={onCancel} className="w-8 h-8 flex items-center justify-center bg-white rounded-full border shadow-sm">✕</button>
@@ -584,7 +725,6 @@
                      type="date" 
                      value={data.date} 
                      onChange={e=>setData({...data, date:e.target.value})} 
-                     // 用 CSS hack 解決電腦版問題，無需 onClick handler
                      className="w-full mt-1 p-3 bg-slate-50 rounded-xl font-bold text-slate-700 outline-none cursor-pointer" 
                    />
                  </div>
@@ -595,6 +735,70 @@
                    </select>
                  </div>
                </div>
+            </div>
+
+            {/* Friends Section - Enhanced UI */}
+            <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
+              <div className="flex justify-between items-end mb-2">
+                 <label className="text-[10px] font-black text-slate-400 uppercase">同行夥伴</label>
+                 <span className="text-[10px] text-slate-400">{data.friends?.length || 0} 人</span>
+              </div>
+              
+              {/* Input Area */}
+              <div className="flex gap-2 mb-3">
+                <div className="relative flex-1">
+                   <input 
+                      type="text" 
+                      value={friendInput}
+                      onChange={e => setFriendInput(e.target.value)}
+                      onKeyDown={e => {if(e.key === 'Enter') addFriend(friendInput)}}
+                      placeholder="輸入名字 (e.g. Jacky)..."
+                      className="w-full p-3 bg-slate-50 rounded-xl font-bold text-slate-700 outline-none text-sm placeholder:font-normal"
+                    />
+                    <button 
+                      onClick={() => addFriend(friendInput)}
+                      className="absolute right-2 top-2 bottom-2 px-3 bg-slate-200 text-slate-600 rounded-lg text-xs font-bold active:bg-slate-300"
+                    >
+                      加入
+                    </button>
+                </div>
+              </div>
+
+              {/* Selected Friends Chips */}
+              {data.friends && data.friends.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-4">
+                   {data.friends.map(f => (
+                     <button key={f} onClick={() => removeFriend(f)} className="bg-blue-600 text-white px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 shadow-md shadow-blue-200 active:scale-95 transition-transform">
+                       {f} <span className="opacity-60 text-[10px]">✕</span>
+                     </button>
+                   ))}
+                </div>
+              )}
+
+              {/* Suggestions */}
+              <div>
+                 <div className="text-[10px] text-slate-400 font-bold mb-2">快速選擇 (常用):</div>
+                 {suggestedFriends.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                       {suggestedFriends.filter(f => !data.friends?.includes(f)).map(f => (
+                         <button 
+                           key={f} 
+                           onClick={() => addFriend(f)}
+                           className="px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-500 bg-white active:bg-slate-50 transition-colors"
+                         >
+                           + {f}
+                         </button>
+                       ))}
+                       {suggestedFriends.every(f => data.friends?.includes(f)) && (
+                          <span className="text-xs text-slate-300">所有常用朋友已選取</span>
+                       )}
+                    </div>
+                 ) : (
+                    <div className="p-3 bg-slate-50 rounded-xl text-xs text-slate-400 text-center border border-dashed border-slate-200">
+                       暫無記錄。新增朋友後，他們會出現在這裡。
+                    </div>
+                 )}
+              </div>
             </div>
             
             <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-5">
@@ -630,6 +834,43 @@
             </div>
 
             <button onClick={()=>onSave({...data, id:initData?.id||Date.now().toString(), date:new Date(data.date).toISOString()})} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black shadow-xl shadow-slate-300 active:scale-95 transition-transform">儲存紀錄</button>
+            
+            {/* 刪除按鈕 (僅在編輯模式顯示) */}
+            {initData && (
+              <button 
+                onClick={() => setShowDeleteConfirm(true)}
+                className="w-full mt-2 py-3 text-xs font-bold text-slate-400 hover:text-slate-600 active:text-red-500 transition-colors"
+              >
+                刪除此紀錄
+              </button>
+            )}
+
+            {/* Custom Modal for Deletion Confirmation */}
+            {showDeleteConfirm && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in">
+                <div className="bg-white rounded-3xl p-6 w-full max-w-xs shadow-2xl animate-scale-up">
+                  <h3 className="text-lg font-black text-slate-800 mb-2">確認刪除？</h3>
+                  <p className="text-sm text-slate-500 mb-6 font-medium">此動作無法復原，您確定要刪除這條紀錄嗎？</p>
+                  <div className="flex gap-3">
+                    <button 
+                      onClick={() => setShowDeleteConfirm(false)}
+                      className="flex-1 py-3 rounded-xl bg-slate-100 font-bold text-slate-600 active:bg-slate-200 transition-colors"
+                    >
+                      取消
+                    </button>
+                    <button 
+                      onClick={() => {
+                        onDelete(initData.id);
+                        setShowDeleteConfirm(false);
+                      }}
+                      className="flex-1 py-3 rounded-xl bg-red-500 font-bold text-white shadow-lg shadow-red-200 active:bg-red-600 active:scale-95 transition-all"
+                    >
+                      刪除
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       );
@@ -648,25 +889,58 @@
         const fb = initFirebase();
         if(fb) {
           const { auth, db } = fb;
-          onAuthStateChanged(auth, (u) => {
+          
+          // 處理 Redirect 登入回調
+          getRedirectResult(auth)
+            .then((result) => {
+              if (result) {
+                console.log("Redirect Login Success");
+              }
+            })
+            .catch((error) => {
+              console.error("Redirect Error:", error);
+              // alert("登入錯誤: " + error.message);
+            });
+
+          onAuthStateChanged(auth, async (u) => {
             setUser(u);
             // Load local first
-            const local = localStorage.getItem(STORAGE_KEY);
-            if(local) setLogs(JSON.parse(local));
+            const localRaw = localStorage.getItem(STORAGE_KEY);
+            const localLogs = localRaw ? JSON.parse(localRaw) : [];
             
-            if(u) {
+            if(!u) {
+               // Not logged in, show local
+               setLogs(localLogs);
+               setStatus('本地模式');
+            } else {
+              // Logged in
               setStatus('連線中...');
-              onSnapshot(doc(db, "users", u.uid), (doc) => {
+              
+              // 檢查雲端是否有資料
+              const userRef = doc(db, "users", u.uid);
+              const snapshot = await getDoc(userRef);
+              
+              // 如果雲端沒有資料，但本地有資料 (例如剛從本地模式登入)
+              // 自動將本地資料備份上去
+              if (!snapshot.exists() && localLogs.length > 0) {
+                 await setDoc(userRef, { logs: localLogs, updatedAt: new Date().toISOString() });
+                 console.log("Auto-uploaded local logs");
+              }
+
+              onSnapshot(userRef, (doc) => {
                 if(doc.exists() && doc.data().logs) {
                   setLogs(doc.data().logs);
                   localStorage.setItem(STORAGE_KEY, JSON.stringify(doc.data().logs));
                   setStatus('已同步');
                 } else {
-                  setStatus('已連線');
+                   // 如果雲端被清空，或者剛創建帳號
+                   setStatus('已連線');
+                   if(localLogs.length > 0 && !snapshot.exists()) {
+                     // 避免 onSnapshot 覆蓋剛上傳的行為 (雖然通常不會，但保險起見)
+                     setLogs(localLogs);
+                   }
                 }
               });
-            } else {
-              setStatus('本地模式');
             }
           });
         } else {
@@ -674,14 +948,56 @@
         }
       }, []);
 
-      const save = (log) => {
+      const save = async (log) => {
+        // 1. Optimistic UI update (即時更新畫面，無需等待)
         const newLogs = editLog ? logs.map(l=>l.id===log.id?log:l) : [log, ...logs];
         setLogs(newLogs);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(newLogs));
+        
+        // 2. Cloud Sync (如果有登入)
         if(user) {
+          setStatus('雲端上傳中...'); // 狀態提示：上傳中
           const fb = initFirebase();
-          if(fb) setDoc(doc(fb.db, "users", user.uid), { logs: newLogs, updatedAt: new Date().toISOString() }, { merge: true });
+          if(fb) {
+            try {
+               await setDoc(doc(fb.db, "users", user.uid), { logs: newLogs, updatedAt: new Date().toISOString() }, { merge: true });
+               // 成功後提示
+               // (雖然 onSnapshot 會再次確認，但這裡給用戶即時反饋更安心)
+               setStatus('已同步');
+            } catch (e) {
+               console.error(e);
+               setStatus('同步失敗 (請檢查網絡)');
+            }
+          }
+        } else {
+           setStatus('已儲存 (本地)');
         }
+        
+        setEditLog(null);
+        setView('dashboard');
+      };
+
+      const removeLog = async (id) => {
+        const newLogs = logs.filter(l => l.id !== id);
+        setLogs(newLogs);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(newLogs));
+        
+        if(user) {
+          setStatus('刪除中...');
+          const fb = initFirebase();
+          if(fb) {
+            try {
+               await setDoc(doc(fb.db, "users", user.uid), { logs: newLogs, updatedAt: new Date().toISOString() }, { merge: true });
+               setStatus('已同步');
+            } catch (e) {
+               console.error(e);
+               setStatus('同步失敗 (請檢查網絡)');
+            }
+          }
+        } else {
+           setStatus('已刪除 (本地)');
+        }
+
         setEditLog(null);
         setView('dashboard');
       };
@@ -690,15 +1006,20 @@
         const fb = initFirebase();
         if(!fb) return;
         try {
-          if(user) await signOut(fb.auth);
-          else await signInWithPopup(fb.auth, fb.googleProvider);
+          if(user) {
+             await signOut(fb.auth);
+             // 登出後，可以選擇保留或清空畫面，這裡保持原狀顯示本地數據 (或上次同步的數據)
+          } else {
+            // 設置持久性為 LOCAL，確保刷新後仍登入
+            await setPersistence(fb.auth, browserLocalPersistence);
+            // 使用 Redirect (跳轉) 進行登入，解決 Safari Popup 阻擋問題
+            await signInWithRedirect(fb.auth, fb.googleProvider);
+          }
         } catch (error) {
           console.error("Auth Error:", error);
           if (error.code === 'auth/unauthorized-domain') {
             const domain = window.location.hostname;
-            alert(`⚠️ 網域未授權 (Unauthorized Domain)\n\nFirebase 拒絕了來自 "${domain}" 的請求。\n\n解決方法：\n1. 去 Firebase Console > Authentication > Settings > Authorized domains\n2. 新增網域: ${domain}`);
-          } else if (error.code === 'auth/popup-closed-by-user') {
-             // User closed the popup, no need to alert
+            alert(`⚠️ 網域未授權\n請至 Firebase Console 新增網域: ${domain}`);
           } else {
             alert("登入錯誤: " + error.message);
           }
@@ -710,7 +1031,7 @@
           {view === 'dashboard' && <Dashboard logs={logs} setView={setView} onEdit={(l)=>{setEditLog(l); setView('add');}} />}
           {view === 'trends' && <Trends logs={logs} />}
           {view === 'calendar' && <Calendar logs={logs} onEdit={(l)=>{setEditLog(l); setView('add');}} />}
-          {view === 'add' && <Form onSave={save} onCancel={()=>{setEditLog(null); setView('dashboard');}} initData={editLog} />}
+          {view === 'add' && <Form onSave={save} onCancel={()=>{setEditLog(null); setView('dashboard');}} onDelete={removeLog} initData={editLog} allLogs={logs} />}
         </Layout>
       );
     };
