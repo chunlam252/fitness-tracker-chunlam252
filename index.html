@@ -152,6 +152,18 @@
       const d = new Date();
       return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     };
+    
+    // Robust date parsing helper for sorting/stats
+    const getLogYear = (dateStr) => parseInt(dateStr.split('-')[0]);
+    
+    const isDateInThisWeek = (dateStr) => {
+      const d = new Date(dateStr.replace(/-/g, '/')); // Force local parsing
+      const now = new Date();
+      const startOfWeek = new Date(now);
+      startOfWeek.setDate(now.getDate() - now.getDay());
+      startOfWeek.setHours(0,0,0,0);
+      return d >= startOfWeek;
+    };
 
     // --- COMPONENTS ---
 
@@ -178,7 +190,7 @@
           <header className="px-6 py-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0">
             <div>
               <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.30 Trends+</span>
+                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.32 SmartDash</span>
               </h1>
               <div className="flex items-center gap-1.5 mt-1">
                 <span className={`w-2 h-2 rounded-full transition-colors duration-300 ${dotColor}`}></span>
@@ -245,12 +257,10 @@
       const daysSince = last ? Math.floor((new Date() - new Date(last.date))/(86400000)) : '-';
       const now = new Date();
       const currentYear = now.getFullYear();
-      const yearLogs = logs.filter(l => new Date(l.date).getFullYear() === currentYear);
+      
+      const yearLogs = logs.filter(l => getLogYear(l.date) === currentYear);
       const uniqueDaysThisYear = new Set(yearLogs.map(l => l.date.split('T')[0])).size;
-      const startOfWeek = new Date(now);
-      startOfWeek.setDate(now.getDate() - now.getDay());
-      startOfWeek.setHours(0,0,0,0);
-      const thisWeekCount = logs.filter(l => new Date(l.date) >= startOfWeek).length;
+      const thisWeekCount = logs.filter(l => isDateInThisWeek(l.date)).length;
       
       const last5 = sorted.slice(0, 5);
       const moodMap = { '🤩': 5, '😊': 4, '😐': 3, '😫': 2, '😡': 1 };
@@ -265,10 +275,33 @@
         else moodText = '😡 糟糕';
       }
 
+      // Logic to determine visible categories
+      // 1. Always show defaults
+      const defaults = ['Gym', '羽毛球', '排球'];
+      // 2. Find other categories that have logs
+      const activeOthers = CATEGORIES
+        .filter(c => !defaults.includes(c.value)) // Exclude defaults
+        .filter(c => logs.some(l => l.category === c.value)) // Only those with logs
+        .map(c => c.value);
+      
+      // 3. Combine and maintain order
+      const visibleCategories = [...defaults, ...activeOthers];
+
+      // 4. Smart Grid Layout: if 4 items, use 2-col, otherwise 3-col
+      const gridClass = visibleCategories.length === 4 ? 'grid-cols-2' : 'grid-cols-3';
+
       const getCategoryStats = (cat) => {
         const catLogs = logs.filter(l => l.category === cat).sort((a,b) => new Date(b.date) - new Date(a.date));
         if (catLogs.length === 0) return { days: null, text: '無紀錄', color: 'text-slate-300' };
-        const diff = Math.floor((new Date() - new Date(catLogs[0].date))/(86400000));
+        
+        // Fix: Use local date for calculation
+        const lastDate = new Date(catLogs[0].date.replace(/-/g, '/'));
+        const today = new Date();
+        today.setHours(0,0,0,0);
+        lastDate.setHours(0,0,0,0);
+        
+        const diff = Math.floor((today - lastDate)/(86400000));
+        
         let text = `${diff} 天前`;
         let color = 'text-slate-500';
         if (diff === 0) { text = '今天'; color = 'text-green-500'; }
@@ -304,8 +337,8 @@
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
-            {['Gym','羽毛球','排球'].map(cat => {
+          <div className={`grid ${gridClass} gap-3`}>
+            {visibleCategories.map(cat => {
               const c = CATEGORIES.find(x=>x.value===cat);
               const stats = getCategoryStats(cat);
               return (
@@ -372,7 +405,9 @@
       const maxWeekly = Math.max(...last7.map(d=>d.mins), 60);
 
       const currentYear = new Date().getFullYear();
-      const yearLogs = logs.filter(l => new Date(l.date).getFullYear() === currentYear);
+      
+      // FIXED: Use string parsing for year to avoid timezone issues for Best Partner/Stats
+      const yearLogs = logs.filter(l => getLogYear(l.date) === currentYear);
       
       // Calculate breakdown for current year
       const breakdown = CATEGORIES.map(cat => {
