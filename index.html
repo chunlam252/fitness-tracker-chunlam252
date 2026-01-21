@@ -146,6 +146,13 @@
       }
     };
 
+    // --- HELPER ---
+    // Get local date string 'YYYY-MM-DD' to avoid UTC shifts
+    const getLocalTodayString = () => {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    };
+
     // --- COMPONENTS ---
 
     const Layout = ({ children, activeView, setView, user, handleAuth, status, retryMode }) => {
@@ -171,7 +178,7 @@
           <header className="px-6 py-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0">
             <div>
               <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.28 UX+</span>
+                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.30 Trends+</span>
               </h1>
               <div className="flex items-center gap-1.5 mt-1">
                 <span className={`w-2 h-2 rounded-full transition-colors duration-300 ${dotColor}`}></span>
@@ -325,7 +332,7 @@
                     <div className="flex-1">
                       <h4 className="font-bold text-slate-800 text-sm">{l.subcategory}</h4>
                       <div className="text-[10px] font-bold text-slate-400 uppercase mt-0.5 flex flex-wrap gap-2 items-center">
-                        <span>{new Date(l.date).toLocaleDateString()} • {l.durationMinutes} min • {l.mood || '😐'}</span>
+                        <span>{l.date.replace(/-/g, '/')} • {l.durationMinutes} min • {l.mood || '😐'}</span>
                       </div>
                       {l.friends && l.friends.length > 0 && (
                         <div className="mt-2 flex items-center gap-1.5 flex-wrap">
@@ -355,8 +362,10 @@
 
     const Trends = ({ logs }) => {
       const last7 = Array.from({length:7}).map((_,i) => {
-        const d = new Date(); d.setDate(d.getDate() - (6-i));
-        const dateStr = d.toISOString().split('T')[0];
+        const d = new Date(); 
+        d.setDate(d.getDate() - (6-i));
+        // Force local YYYY-MM-DD construction to match stored logs
+        const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
         const mins = logs.filter(l=>l.date.startsWith(dateStr)).reduce((a,b)=>a+b.durationMinutes,0);
         return { day: d.getDate(), mins, isToday: i===6 };
       });
@@ -364,19 +373,29 @@
 
       const currentYear = new Date().getFullYear();
       const yearLogs = logs.filter(l => new Date(l.date).getFullYear() === currentYear);
+      
+      // Calculate breakdown for current year
       const breakdown = CATEGORIES.map(cat => {
         const catLogs = yearLogs.filter(l => l.category === cat.value);
         const totalMinutes = catLogs.reduce((a,b)=>a+b.durationMinutes, 0);
         const count = catLogs.length;
         return { ...cat, totalMinutes, count, hours: (totalMinutes/60).toFixed(1) };
       }).filter(c => c.totalMinutes > 0).sort((a,b) => b.totalMinutes - a.totalMinutes);
+      
       const maxYearlyMinutes = Math.max(...breakdown.map(b => b.totalMinutes), 1);
+      
+      // Overall Year Stats
+      const totalYearMins = yearLogs.reduce((a,b) => a + b.durationMinutes, 0);
+      const totalYearHours = (totalYearMins / 60).toFixed(1);
+      const avgSessionMins = yearLogs.length > 0 ? Math.round(totalYearMins / yearLogs.length) : 0;
 
       let streak = 0;
       const sortedDates = [...new Set(logs.map(l => l.date.split('T')[0]))].sort((a, b) => new Date(b) - new Date(a));
       if (sortedDates.length > 0) {
-        const today = new Date().toISOString().split('T')[0];
-        const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+        const today = getLocalTodayString();
+        const d = new Date(); d.setDate(d.getDate()-1);
+        const yesterday = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        
         if (sortedDates[0] === today || sortedDates[0] === yesterday) {
           streak = 1;
           for (let i = 0; i < sortedDates.length - 1; i++) {
@@ -407,18 +426,68 @@
              <StatCard title="本年活躍" value={new Set(yearLogs.map(l => l.date.split('T')[0])).size} unit="日" icon="📈" color="text-green-500" />
           </section>
 
+          <section className="grid grid-cols-3 gap-2">
+            <div className="bg-white p-3 rounded-2xl border border-slate-100 text-center">
+               <div className="text-[10px] text-slate-400 font-bold uppercase">總時數</div>
+               <div className="text-xl font-black text-slate-800 mt-1">{totalYearHours}<span className="text-[10px] text-slate-400 font-normal ml-0.5">hr</span></div>
+            </div>
+            <div className="bg-white p-3 rounded-2xl border border-slate-100 text-center">
+               <div className="text-[10px] text-slate-400 font-bold uppercase">總次數</div>
+               <div className="text-xl font-black text-slate-800 mt-1">{yearLogs.length}<span className="text-[10px] text-slate-400 font-normal ml-0.5">次</span></div>
+            </div>
+            <div className="bg-white p-3 rounded-2xl border border-slate-100 text-center">
+               <div className="text-[10px] text-slate-400 font-bold uppercase">平均</div>
+               <div className="text-xl font-black text-slate-800 mt-1">{avgSessionMins}<span className="text-[10px] text-slate-400 font-normal ml-0.5">min</span></div>
+            </div>
+          </section>
+
+          <section>
+            <h3 className="text-sm font-black text-slate-800 mb-4 uppercase tracking-widest">過去 7 天 (分鐘)</h3>
+            <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 h-48 flex items-end justify-between gap-2">
+               {last7.map((d,i) => (
+                 <div key={i} className="flex-1 flex flex-col items-center gap-1 h-full justify-end group">
+                   <span className={`text-[9px] font-bold text-slate-500 mb-1 transition-opacity ${d.mins > 0 ? 'opacity-100' : 'opacity-0'}`}>{d.mins}</span>
+                   <div style={{height: `${d.mins > 0 ? Math.max((d.mins/maxWeekly)*100, 5) : 2}%`}} className={`w-full max-w-[12px] rounded-full min-h-[4px] transition-all duration-500 ${d.isToday ? 'bg-blue-500' : (d.mins > 0 ? 'bg-blue-200' : 'bg-slate-100')}`}></div>
+                   <span className="text-[10px] font-bold text-slate-400 mt-1">{d.day}</span>
+                 </div>
+               ))}
+            </div>
+          </section>
+
+          {breakdown.length > 0 && (
+             <section>
+               <h3 className="text-sm font-black text-slate-800 mb-4 uppercase tracking-widest">運動項目分佈</h3>
+               <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4">
+                 {breakdown.map((item) => (
+                   <div key={item.value}>
+                     <div className="flex justify-between items-end mb-1">
+                       <div className="flex items-center gap-2">
+                         <span className="text-lg">{item.icon}</span>
+                         <span className="text-xs font-bold text-slate-700">{item.value}</span>
+                       </div>
+                       <div className="text-[10px] font-bold text-slate-400">{item.hours} hr ({Math.round((item.totalMinutes/totalYearMins)*100)}%)</div>
+                     </div>
+                     <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                       <div className={`h-full ${item.color}`} style={{width: `${(item.totalMinutes/maxYearlyMinutes)*100}%`}}></div>
+                     </div>
+                   </div>
+                 ))}
+               </div>
+             </section>
+          )}
+
           {topFriends.length > 0 && (
             <section>
-              <h3 className="text-lg font-black text-slate-800 mb-4">最佳拍檔</h3>
+              <h3 className="text-sm font-black text-slate-800 mb-4 uppercase tracking-widest">最佳拍檔</h3>
               <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4">
                 {topFriends.map(([name, stats], index) => (
                   <div key={name} className="flex items-start gap-4">
-                    <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold shrink-0">{index+1}</div>
+                    <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold shrink-0 text-slate-500">{index+1}</div>
                     <div className="flex-1">
                       <div className="flex justify-between font-bold text-slate-700"><span>{name}</span><span>{stats.total} 次</span></div>
                       <div className="flex gap-2 mt-1">
                         {Object.entries(stats.cats).map(([cat, count]) => (
-                          <span key={cat} className="text-[10px] bg-slate-50 px-1 py-0.5 rounded">{CATEGORIES.find(c=>c.value===cat)?.icon} x{count}</span>
+                          <span key={cat} className="text-[10px] bg-slate-50 px-1.5 py-0.5 rounded text-slate-500 border border-slate-100">{CATEGORIES.find(c=>c.value===cat)?.icon} {count}</span>
                         ))}
                       </div>
                     </div>
@@ -427,18 +496,6 @@
               </div>
             </section>
           )}
-
-          <section>
-            <h3 className="text-lg font-black text-slate-800 mb-4">過去 7 天 (分鐘)</h3>
-            <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 h-40 flex items-end justify-between gap-2">
-               {last7.map((d,i) => (
-                 <div key={i} className="flex-1 flex flex-col items-center gap-2 h-full justify-end">
-                   <div style={{height: `${(d.mins/maxWeekly)*100}%`}} className={`w-full max-w-[12px] rounded-full min-h-[4px] ${d.isToday ? 'bg-blue-500' : 'bg-slate-100'}`}></div>
-                   <span className="text-[10px] font-bold text-slate-400">{d.day}</span>
-                 </div>
-               ))}
-            </div>
-          </section>
         </div>
       );
     }
@@ -453,7 +510,7 @@
 
     const Calendar = ({ logs, onEdit }) => {
       const [date, setDate] = useState(new Date());
-      const [sel, setSel] = useState(new Date().toISOString().split('T')[0]);
+      const [sel, setSel] = useState(getLocalTodayString());
       const daysInMonth = new Date(date.getFullYear(), date.getMonth()+1, 0).getDate();
       const firstDay = new Date(date.getFullYear(), date.getMonth(), 1).getDay();
       const days = Array(firstDay).fill(null).concat([...Array(daysInMonth).keys()].map(i=>i+1));
@@ -499,10 +556,10 @@
         const defaults = { 
             category: 'Gym', 
             subcategory: '重量訓練', 
-            date: new Date().toISOString().split('T')[0], 
+            date: getLocalTodayString(), // Use local time for default date
             durationMinutes: 60, 
             effort: 5, 
-            performance: 7, // Updated default to 7 for 1-10 scale
+            performance: 7, 
             mood: '😊', 
             friends: [] 
         };
