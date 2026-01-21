@@ -171,7 +171,7 @@
           <header className="px-6 py-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0">
             <div>
               <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.23 SmartAuth</span>
+                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.24 FixLegacy</span>
               </h1>
               <div className="flex items-center gap-1.5 mt-1">
                 <span className={`w-2 h-2 rounded-full transition-colors duration-300 ${dotColor}`}></span>
@@ -495,7 +495,36 @@
     }
 
     const Form = ({ onSave, onCancel, onDelete, initData, allLogs }) => {
-      const [data, setData] = useState(initData || { category: 'Gym', subcategory: '重量訓練', date: new Date().toISOString().split('T')[0], durationMinutes: 60, effort: 5, performance: 5, mood: '😊', friends: [] });
+      const [data, setData] = useState(() => {
+        const defaults = { 
+            category: 'Gym', 
+            subcategory: '重量訓練', 
+            date: new Date().toISOString().split('T')[0], 
+            durationMinutes: 60, 
+            effort: 5, 
+            performance: 5, 
+            mood: '😊', 
+            friends: [] 
+        };
+        
+        if (!initData) return defaults;
+
+        // Merge defaults to handle missing fields (like friends) in old data
+        const merged = { ...defaults, ...initData };
+        
+        // Safety: Ensure category is valid (in case of legacy data with deleted categories)
+        if (!CATEGORIES.find(c => c.value === merged.category)) {
+             merged.category = 'Gym';
+             merged.subcategory = '重量訓練';
+        }
+        
+        // Safety: Ensure friends is an array
+        if (!Array.isArray(merged.friends)) {
+            merged.friends = [];
+        }
+
+        return merged;
+      });
       const [friendInput, setFriendInput] = useState('');
       const suggestedFriends = React.useMemo(() => {
         const counts = {};
