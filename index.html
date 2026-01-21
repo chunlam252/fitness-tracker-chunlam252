@@ -147,11 +147,11 @@
 
     // --- COMPONENTS ---
 
-    const Layout = ({ children, activeView, setView, user, handleAuth, status }) => {
+    const Layout = ({ children, activeView, setView, user, handleAuth, status, retryMode }) => {
       let dotColor = 'bg-slate-300';
       let textColor = 'text-slate-400';
 
-      if (status.includes('失敗') || status.includes('錯誤') || status.includes('未授權') || status.includes('阻擋')) {
+      if (status.includes('失敗') || status.includes('錯誤') || status.includes('未授權') || status.includes('阻擋') || status.includes('失效')) {
         dotColor = 'bg-red-500';
         textColor = 'text-red-500 font-bold';
       } else if (status.includes('同步') || status.includes('已連線') || status.includes('成功')) {
@@ -170,7 +170,7 @@
           <header className="px-6 py-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0">
             <div>
               <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.21 Debug</span>
+                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.22 Fallback</span>
               </h1>
               <div className="flex items-center gap-1.5 mt-1">
                 <span className={`w-2 h-2 rounded-full transition-colors duration-300 ${dotColor}`}></span>
@@ -207,10 +207,10 @@
                 {user?.photoURL ? (
                   <img src={user.photoURL} className={`w-6 h-6 rounded-full border border-slate-200 ${user ? 'ring-2 ring-blue-100' : ''}`} alt="User" />
                 ) : (
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                  <svg className={`w-6 h-6 ${retryMode && !user ? 'text-red-500 animate-bounce' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
                 )}
               </div>
-              <span className="text-[10px] font-bold">{user ? '帳戶' : '登入'}</span>
+              <span className={`text-[10px] font-bold ${retryMode && !user ? 'text-red-500' : ''}`}>{user ? '帳戶' : (retryMode ? '重試' : '登入')}</span>
             </button>
           </nav>
         </div>
@@ -544,6 +544,7 @@
       });
       const [editLog, setEditLog] = useState(null);
       const [user, setUser] = useState(null);
+      const [loginRetryMode, setLoginRetryMode] = useState(false);
       
       const [isRedirectChecking, setIsRedirectChecking] = useState(() => {
         const isPending = !!sessionStorage.getItem(REDIRECT_PENDING_KEY);
@@ -571,8 +572,17 @@
               if (result) {
                 console.log('[Auth] Redirect Result Success:', result.user.uid);
                 setStatus('登入成功 (轉向)');
+                // 成功後，確保重置重試模式
+                setLoginRetryMode(false);
               } else {
                 console.log('[Auth] Redirect Result: Null');
+                // 關鍵修改：如果有 Pending Key 但是 Result 是 Null，代表轉向失敗 (Cookie問題或DevTools環境)
+                if (sessionStorage.getItem(REDIRECT_PENDING_KEY)) {
+                   console.warn('[Auth] Redirect failed (Result Null with Pending Key). Activating Retry Mode.');
+                   setStatus('轉向失效 (請重試)');
+                   setLoginRetryMode(true);
+                   alert('轉向登入未能完成 (可能受瀏覽器 Cookie 限制)。\n\n下次點擊登入將自動切換為「彈出視窗模式」。');
+                }
               }
             })
             .catch((error) => {
@@ -597,16 +607,19 @@
             if(!u) {
               setLogs(localLogs);
               const hasPendingKey = !!sessionStorage.getItem(REDIRECT_PENDING_KEY);
-              console.log('[Auth] No User. Pending Key:', hasPendingKey, 'Status contains Error:', status.includes('錯誤'));
-              
-              if (!hasPendingKey && !status.includes('錯誤')) {
+              // 如果處於重試模式，顯示特定狀態
+              if (loginRetryMode) {
+                 setStatus('驗證失效 (請重試)');
+              } else if (!hasPendingKey && !status.includes('錯誤')) {
                  setStatus('本地模式 (未登入)');
               } else {
                  console.log('[Auth] Skip setting local mode status due to pending redirect or error');
               }
             } else {
+              // 登入成功，清除所有暫存狀態
               sessionStorage.removeItem(REDIRECT_PENDING_KEY);
               setIsRedirectChecking(false);
+              setLoginRetryMode(false);
 
               setStatus('連線中 (準備合併)...');
               try {
@@ -664,14 +677,14 @@
           
           return () => unsubscribe();
         }
-      }, []);
+      }, [loginRetryMode]); // Add loginRetryMode to dependencies
 
       useEffect(() => {
          const hasPendingKey = !!sessionStorage.getItem(REDIRECT_PENDING_KEY);
-         if (!isRedirectChecking && !user && !status.includes('錯誤') && !hasPendingKey) {
+         if (!isRedirectChecking && !user && !status.includes('錯誤') && !hasPendingKey && !loginRetryMode) {
             setStatus('本地模式 (未登入)');
          }
-      }, [isRedirectChecking, user]);
+      }, [isRedirectChecking, user, loginRetryMode]);
 
       const save = async (log) => {
         const newLogs = editLog ? logs.map(l=>l.id===log.id?log:l) : [log, ...logs];
@@ -711,7 +724,10 @@
 
       const handleAuth = async (e) => {
         if (e) e.preventDefault(); 
-        console.log('[Auth] Login/Logout clicked');
+        console.log('[Auth] Login/Logout clicked. Retry Mode:', loginRetryMode);
+        
+        // 點擊登入時，先清除任何可能殘留的 pending key，確保這次是乾淨的開始
+        sessionStorage.removeItem(REDIRECT_PENDING_KEY);
         
         const fb = initFirebase();
         if(!fb) return;
@@ -721,6 +737,7 @@
              console.log('[Auth] Signing out');
              await signOut(fb.auth);
              setStatus('本地模式 (已登出)');
+             setLoginRetryMode(false);
           } else {
              console.log('[Auth] Signing in');
              await setPersistence(fb.auth, browserLocalPersistence);
@@ -729,16 +746,17 @@
              const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
              console.log('[Auth] Device detected as mobile:', isMobile);
              
-             if (isMobile) {
-                console.log('[Auth] Starting Redirect Flow');
+             // 如果在重試模式，或者不是手機，都使用 Popup
+             if (loginRetryMode || !isMobile) {
+                console.log('[Auth] Starting Popup Flow (Force/Desktop)');
+                setStatus('正在開啟 Google 登入視窗...');
+                await signInWithPopup(fb.auth, provider);
+             } else {
+                console.log('[Auth] Starting Redirect Flow (Mobile)');
                 sessionStorage.setItem(REDIRECT_PENDING_KEY, 'true');
                 setStatus('正在轉向 Google 登入...');
                 setIsRedirectChecking(true);
                 await signInWithRedirect(fb.auth, provider);
-             } else {
-                console.log('[Auth] Starting Popup Flow');
-                setStatus('正在開啟 Google 登入視窗...');
-                await signInWithPopup(fb.auth, provider);
              }
           }
         } catch (error) {
@@ -752,7 +770,7 @@
           }
           if (error.code === 'auth/popup-blocked') {
              console.warn('[Auth] Popup Blocked, falling back to redirect');
-             alert('彈出視窗被阻擋。嘗試轉向模式...');
+             alert('彈出視窗被阻擋。將嘗試轉向模式...');
              sessionStorage.setItem(REDIRECT_PENDING_KEY, 'true');
              try {
                 await signInWithRedirect(fb.auth, new GoogleAuthProvider());
@@ -777,7 +795,7 @@
       }
 
       return (
-        <Layout activeView={view} setView={setView} user={user} handleAuth={handleAuth} status={status}>
+        <Layout activeView={view} setView={setView} user={user} handleAuth={handleAuth} status={status} retryMode={loginRetryMode}>
           {view === 'dashboard' && <Dashboard logs={logs} setView={setView} onEdit={(l)=>{setEditLog(l); setView('add');}} />}
           {view === 'trends' && <Trends logs={logs} />}
           {view === 'calendar' && <Calendar logs={logs} onEdit={(l)=>{setEditLog(l); setView('add');}} />}
