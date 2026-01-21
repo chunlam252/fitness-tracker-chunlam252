@@ -7,6 +7,7 @@
   <meta name="description" content="一個全功能的運動追蹤應用程式">
   
   <!-- PWA & Mobile Settings -->
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="FitTrack">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -84,7 +85,8 @@
     import { 
       getAuth, 
       onAuthStateChanged, 
-      signInWithRedirect, 
+      signInWithRedirect,
+      signInWithPopup, 
       getRedirectResult, 
       signOut, 
       GoogleAuthProvider, 
@@ -153,7 +155,7 @@
           <header className="px-6 py-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0">
             <div>
               <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.16</span>
+                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.17</span>
               </h1>
               <div className="flex items-center gap-1.5 mt-1">
                 <span className={`w-2 h-2 rounded-full transition-colors duration-300 ${dotColor}`}></span>
@@ -650,28 +652,51 @@
         setEditLog(null); setView('dashboard');
       };
 
-      const handleAuth = async () => {
+      const handleAuth = async (e) => {
+        if (e) e.preventDefault(); // 防止按鈕觸發非預期重載
+        
         const fb = initFirebase();
         if(!fb) return;
+        
         try {
           if(user) {
              await signOut(fb.auth);
              setStatus('本地模式 (已登出)');
           } else {
-            // 開始轉向登入流程
-            setStatus('正在轉向 Google 登入...');
-            isCheckingRedirect.current = true; // 鎖定狀態
+            // 混合策略：偵測 User Agent
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
             await setPersistence(fb.auth, browserLocalPersistence);
             const provider = new GoogleAuthProvider();
-            await signInWithRedirect(fb.auth, provider);
+            
+            if (isMobile) {
+               // 手機端：必須使用 Redirect (Popup 會被擋或關閉)
+               setStatus('正在轉向 Google 登入...');
+               isCheckingRedirect.current = true;
+               await signInWithRedirect(fb.auth, provider);
+            } else {
+               // 電腦端：使用 Popup (解決 Redirect 無反應問題，並提供更好的除錯訊息)
+               setStatus('正在開啟 Google 登入視窗...');
+               await signInWithPopup(fb.auth, provider);
+            }
           }
         } catch (error) {
           console.error(error);
-          isCheckingRedirect.current = false; // 發生錯誤時釋放鎖
+          // 在電腦端 Popup 關閉時不視為嚴重錯誤
+          if (error.code === 'auth/popup-closed-by-user') {
+            setStatus('登入已取消');
+            return;
+          }
+          
+          isCheckingRedirect.current = false;
+          // 明確提示錯誤原因，特別是 Domain 問題
           if (error.code === 'auth/unauthorized-domain') {
-            setStatus('錯誤: 請在 Firebase Console 加入此網域');
+            const msg = '錯誤: 此網域未獲授權。請在 Firebase Console > Authentication > Settings > Authorized Domains 加入此網域/IP。';
+            setStatus('網域未授權');
+            alert(msg);
           } else {
-            setStatus('登入失敗: ' + (error.message || '未知錯誤'));
+            const msg = '登入失敗: ' + (error.message || '未知錯誤');
+            setStatus('登入失敗');
+            alert(msg); // 確保用戶看到錯誤
           }
         }
       }
