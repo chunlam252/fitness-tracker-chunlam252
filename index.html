@@ -85,7 +85,9 @@
     import { 
       getAuth, 
       onAuthStateChanged, 
-      signInWithPopup, 
+      signInWithPopup,
+      signInWithRedirect,
+      getRedirectResult,
       signOut, 
       GoogleAuthProvider, 
       setPersistence, 
@@ -140,7 +142,7 @@
       } else if (status.includes('同步') || status.includes('已連線') || status.includes('成功')) {
         dotColor = 'bg-green-500';
         textColor = 'text-green-600';
-      } else if (status.includes('處理中') || status.includes('上傳') || status.includes('刪除') || status.includes('合併') || status.includes('轉向') || status.includes('檢查') || status.includes('開啟')) {
+      } else if (status.includes('處理中') || status.includes('上傳') || status.includes('刪除') || status.includes('合併') || status.includes('轉向') || status.includes('檢查') || status.includes('開啟') || status.includes('驗證')) {
         dotColor = 'bg-yellow-400 animate-pulse';
         textColor = 'text-yellow-600';
       } else if (status.includes('連線') || status.includes('登入')) {
@@ -153,7 +155,7 @@
           <header className="px-6 py-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0">
             <div>
               <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.18</span>
+                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.19</span>
               </h1>
               <div className="flex items-center gap-1.5 mt-1">
                 <span className={`w-2 h-2 rounded-full transition-colors duration-300 ${dotColor}`}></span>
@@ -527,12 +529,32 @@
       });
       const [editLog, setEditLog] = useState(null);
       const [user, setUser] = useState(null);
+      // isRedirectChecking is used to show "Checking..." instead of "Local Mode" immediately after reload
+      const [isRedirectChecking, setIsRedirectChecking] = useState(true);
       const [status, setStatus] = useState('初始化');
 
       useEffect(() => {
         const fb = initFirebase();
         if(fb) {
-          // 只依靠 onAuthStateChanged，不使用 Redirect Result
+          setStatus('正在驗證身分...');
+          
+          // 1. Check for Redirect Result (Mobile)
+          getRedirectResult(fb.auth)
+            .then((result) => {
+              if (result) {
+                setStatus('登入成功 (轉向)');
+                // The onAuthStateChanged will handle the user object
+              }
+            })
+            .catch((error) => {
+               console.error("Redirect Error:", error);
+               setStatus('登入錯誤: ' + error.message);
+            })
+            .finally(() => {
+               setIsRedirectChecking(false);
+            });
+
+          // 2. Auth State Listener
           const unsubscribe = onAuthStateChanged(fb.auth, async (u) => {
             setUser(u);
             const localRaw = localStorage.getItem(STORAGE_KEY);
@@ -540,7 +562,9 @@
             
             if(!u) {
               setLogs(localLogs);
-              if (!status.includes('錯誤') && !status.includes('開啟')) {
+              // Only show Local Mode if we are NOT still checking for a redirect result
+              // This prevents the "Local Mode" flash during the redirect resolution
+              if (!isRedirectChecking && !status.includes('錯誤')) {
                  setStatus('本地模式 (未登入)');
               }
             } else {
@@ -594,6 +618,13 @@
         }
       }, []);
 
+      // Effect to update status text when checking finishes, if still null
+      useEffect(() => {
+         if (!isRedirectChecking && !user && !status.includes('錯誤')) {
+            setStatus('本地模式 (未登入)');
+         }
+      }, [isRedirectChecking, user]);
+
       const save = async (log) => {
         const newLogs = editLog ? logs.map(l=>l.id===log.id?log:l) : [log, ...logs];
         setLogs(newLogs);
@@ -635,22 +666,38 @@
              await signOut(fb.auth);
              setStatus('本地模式 (已登出)');
           } else {
-             // 統一使用 Popup (支援 Desktop 與 Mobile Safari)
-             // 這會開啟一個新分頁，驗證完畢後自動關閉，不會造成主頁面刷新，從而保存狀態
-             setStatus('正在開啟 Google 登入視窗...');
              await setPersistence(fb.auth, browserLocalPersistence);
              const provider = new GoogleAuthProvider();
-             await signInWithPopup(fb.auth, provider);
+             
+             // 混合模式：手機用 Redirect，電腦用 Popup
+             const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+             
+             if (isMobile) {
+                setStatus('正在轉向 Google 登入...');
+                setIsRedirectChecking(true); // 再次鎖定狀態
+                await signInWithRedirect(fb.auth, provider);
+                // 這裡之後頁面會刷新，進入上方的 useEffect 邏輯
+             } else {
+                setStatus('正在開啟 Google 登入視窗...');
+                await signInWithPopup(fb.auth, provider);
+             }
           }
         } catch (error) {
           console.error(error);
+          setIsRedirectChecking(false);
+
           if (error.code === 'auth/popup-closed-by-user') {
             setStatus('登入已取消');
             return;
           }
           if (error.code === 'auth/popup-blocked') {
-             alert('請允許此網站開啟彈出視窗以進行登入。');
-             setStatus('登入視窗被阻擋');
+             // Fallback for Desktop if popup blocked
+             alert('彈出視窗被阻擋。嘗試轉向模式...');
+             try {
+                await signInWithRedirect(fb.auth, new GoogleAuthProvider());
+             } catch(e) {
+                setStatus('登入失敗: ' + e.message);
+             }
              return;
           }
           
