@@ -22,6 +22,17 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- vConsole for Mobile Debugging -->
+  <script src="https://unpkg.com/vconsole@latest/dist/vconsole.min.js"></script>
+  <script>
+    // Initialize vConsole immediately
+    var vConsole = new VConsole();
+    console.log('[System] vConsole initialized');
+    window.onerror = function(msg, url, line, col, error) {
+      console.error('[Global Error]', msg, 'Line:', line, 'Error:', error);
+    };
+  </script>
   
   <style>
     body {
@@ -94,6 +105,8 @@
       browserLocalPersistence 
     } from 'firebase/auth';
 
+    console.log('[App] Modules loaded');
+
     const CATEGORIES = [
       { value: 'Gym', subcategories: ['功能性訓練', '重量訓練', '帶氧運動', 'HIIT', '伸展'], color: 'bg-blue-500', icon: '💪' },
       { value: '羽毛球', subcategories: ['友誼賽', '技術練習', '正式比賽', '單打', '雙打'], color: 'bg-green-500', icon: '🏸' },
@@ -114,6 +127,7 @@
     };
 
     const STORAGE_KEY = 'fittrack_logs_v1';
+    const REDIRECT_PENDING_KEY = 'auth_redirect_pending';
 
     let db, auth, googleProvider;
 
@@ -123,9 +137,10 @@
         db = getFirestore(app);
         auth = getAuth(app);
         googleProvider = new GoogleAuthProvider();
+        console.log('[Firebase] Initialized successfully');
         return { auth, db, googleProvider };
       } catch (e) {
-        console.error("Firebase Error:", e);
+        console.error("[Firebase] Init Error:", e);
         return null; 
       }
     };
@@ -155,7 +170,7 @@
           <header className="px-6 py-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0">
             <div>
               <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.19</span>
+                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.21 Debug</span>
               </h1>
               <div className="flex items-center gap-1.5 mt-1">
                 <span className={`w-2 h-2 rounded-full transition-colors duration-300 ${dotColor}`}></span>
@@ -529,88 +544,121 @@
       });
       const [editLog, setEditLog] = useState(null);
       const [user, setUser] = useState(null);
-      // isRedirectChecking is used to show "Checking..." instead of "Local Mode" immediately after reload
-      const [isRedirectChecking, setIsRedirectChecking] = useState(true);
-      const [status, setStatus] = useState('初始化');
+      
+      const [isRedirectChecking, setIsRedirectChecking] = useState(() => {
+        const isPending = !!sessionStorage.getItem(REDIRECT_PENDING_KEY);
+        console.log('[App] Initial Redirect Check. Pending Key:', isPending);
+        return isPending;
+      });
+      
+      const [status, setStatus] = useState(() => {
+        return sessionStorage.getItem(REDIRECT_PENDING_KEY) ? '驗證身分中 (請稍候)...' : '初始化';
+      });
 
       useEffect(() => {
+        console.log('[Effect] Main Auth Effect Started');
         const fb = initFirebase();
         if(fb) {
-          setStatus('正在驗證身分...');
-          
-          // 1. Check for Redirect Result (Mobile)
+          // 1. 如果是 Redirect 回來，強制顯示驗證訊息
+          if (sessionStorage.getItem(REDIRECT_PENDING_KEY)) {
+             console.log('[Effect] Found pending key, waiting for redirect result');
+             setStatus('驗證身分中 (Google 回傳)...');
+          }
+
+          // 2. 處理 Redirect 結果
           getRedirectResult(fb.auth)
             .then((result) => {
               if (result) {
+                console.log('[Auth] Redirect Result Success:', result.user.uid);
                 setStatus('登入成功 (轉向)');
-                // The onAuthStateChanged will handle the user object
+              } else {
+                console.log('[Auth] Redirect Result: Null');
               }
             })
             .catch((error) => {
-               console.error("Redirect Error:", error);
-               setStatus('登入錯誤: ' + error.message);
+               console.error('[Auth] Redirect Error:', error);
+               if (error.code !== 'auth/popup-closed-by-user') {
+                  setStatus('登入錯誤: ' + error.message);
+               }
             })
             .finally(() => {
+               console.log('[Auth] Redirect check finished. Removing key.');
+               sessionStorage.removeItem(REDIRECT_PENDING_KEY);
                setIsRedirectChecking(false);
             });
 
-          // 2. Auth State Listener
+          // 3. 監聽 Auth 變化
           const unsubscribe = onAuthStateChanged(fb.auth, async (u) => {
+            console.log('[Auth] AuthStateChanged:', u ? `User ${u.uid}` : 'No User');
             setUser(u);
             const localRaw = localStorage.getItem(STORAGE_KEY);
             const localLogs = localRaw ? JSON.parse(localRaw) : [];
             
             if(!u) {
               setLogs(localLogs);
-              // Only show Local Mode if we are NOT still checking for a redirect result
-              // This prevents the "Local Mode" flash during the redirect resolution
-              if (!isRedirectChecking && !status.includes('錯誤')) {
+              const hasPendingKey = !!sessionStorage.getItem(REDIRECT_PENDING_KEY);
+              console.log('[Auth] No User. Pending Key:', hasPendingKey, 'Status contains Error:', status.includes('錯誤'));
+              
+              if (!hasPendingKey && !status.includes('錯誤')) {
                  setStatus('本地模式 (未登入)');
+              } else {
+                 console.log('[Auth] Skip setting local mode status due to pending redirect or error');
               }
             } else {
+              sessionStorage.removeItem(REDIRECT_PENDING_KEY);
+              setIsRedirectChecking(false);
+
               setStatus('連線中 (準備合併)...');
-              const userRef = doc(fb.db, "users", u.uid);
-              const snapshot = await getDoc(userRef);
-              
-              let finalLogs = [];
-
-              if (snapshot.exists()) {
-                const cloudLogs = snapshot.data().logs || [];
-                const cloudIds = new Set(cloudLogs.map(l => l.id));
-                const uniqueLocals = localLogs.filter(l => !cloudIds.has(l.id));
+              try {
+                const userRef = doc(fb.db, "users", u.uid);
+                const snapshot = await getDoc(userRef);
+                console.log('[DB] User Doc Exists:', snapshot.exists());
                 
-                if (uniqueLocals.length > 0) {
-                  setStatus('發現新紀錄，正在合併...');
-                  finalLogs = [...cloudLogs, ...uniqueLocals];
-                  await setDoc(userRef, { logs: finalLogs, updatedAt: new Date().toISOString() }, { merge: true });
-                } else {
-                  finalLogs = cloudLogs;
-                }
-              } else {
-                if (localLogs.length > 0) {
-                   await setDoc(userRef, { logs: localLogs, updatedAt: new Date().toISOString() });
-                }
-                finalLogs = localLogs;
-              }
+                let finalLogs = [];
 
-              setLogs(finalLogs);
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(finalLogs));
-              
-              onSnapshot(userRef, (doc) => {
-                if(doc.exists() && doc.data().logs) {
-                  const newCloudLogs = doc.data().logs;
-                  setLogs(prev => {
-                     if (JSON.stringify(prev) !== JSON.stringify(newCloudLogs)) {
-                       localStorage.setItem(STORAGE_KEY, JSON.stringify(newCloudLogs));
-                       return newCloudLogs;
-                     }
-                     return prev;
-                  });
-                  setStatus('已連線 (雲端同步)');
+                if (snapshot.exists()) {
+                  const cloudLogs = snapshot.data().logs || [];
+                  const cloudIds = new Set(cloudLogs.map(l => l.id));
+                  const uniqueLocals = localLogs.filter(l => !cloudIds.has(l.id));
+                  
+                  if (uniqueLocals.length > 0) {
+                    setStatus('發現新紀錄，正在合併...');
+                    finalLogs = [...cloudLogs, ...uniqueLocals];
+                    await setDoc(userRef, { logs: finalLogs, updatedAt: new Date().toISOString() }, { merge: true });
+                  } else {
+                    finalLogs = cloudLogs;
+                  }
                 } else {
-                  setStatus('已連線 (無數據)');
+                  console.log('[DB] Creating new user doc');
+                  if (localLogs.length > 0) {
+                     await setDoc(userRef, { logs: localLogs, updatedAt: new Date().toISOString() });
+                  }
+                  finalLogs = localLogs;
                 }
-              });
+
+                setLogs(finalLogs);
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(finalLogs));
+                
+                onSnapshot(userRef, (doc) => {
+                  if(doc.exists() && doc.data().logs) {
+                    const newCloudLogs = doc.data().logs;
+                    setLogs(prev => {
+                       if (JSON.stringify(prev) !== JSON.stringify(newCloudLogs)) {
+                         console.log('[DB] Sync update received');
+                         localStorage.setItem(STORAGE_KEY, JSON.stringify(newCloudLogs));
+                         return newCloudLogs;
+                       }
+                       return prev;
+                    });
+                    setStatus('已連線 (雲端同步)');
+                  } else {
+                    setStatus('已連線 (無數據)');
+                  }
+                });
+              } catch (err) {
+                console.error('[DB] Error during sync:', err);
+                setStatus('資料庫連線錯誤');
+              }
             }
           });
           
@@ -618,9 +666,9 @@
         }
       }, []);
 
-      // Effect to update status text when checking finishes, if still null
       useEffect(() => {
-         if (!isRedirectChecking && !user && !status.includes('錯誤')) {
+         const hasPendingKey = !!sessionStorage.getItem(REDIRECT_PENDING_KEY);
+         if (!isRedirectChecking && !user && !status.includes('錯誤') && !hasPendingKey) {
             setStatus('本地模式 (未登入)');
          }
       }, [isRedirectChecking, user]);
@@ -635,7 +683,10 @@
           try {
              await setDoc(doc(fb.db, "users", user.uid), { logs: newLogs, updatedAt: new Date().toISOString() }, { merge: true });
              setStatus('雲端已同步');
-          } catch (e) { setStatus('同步錯誤 (網絡不穩)'); }
+          } catch (e) { 
+             console.error('[Save] Error:', e);
+             setStatus('同步錯誤 (網絡不穩)'); 
+          }
         }
         setEditLog(null); setView('dashboard');
       };
@@ -650,53 +701,65 @@
           try {
              await setDoc(doc(fb.db, "users", user.uid), { logs: newLogs, updatedAt: new Date().toISOString() }, { merge: true });
              setStatus('雲端已同步');
-          } catch (e) { setStatus('同步刪除錯誤'); }
+          } catch (e) { 
+             console.error('[Delete] Error:', e);
+             setStatus('同步刪除錯誤'); 
+          }
         }
         setEditLog(null); setView('dashboard');
       };
 
       const handleAuth = async (e) => {
         if (e) e.preventDefault(); 
+        console.log('[Auth] Login/Logout clicked');
         
         const fb = initFirebase();
         if(!fb) return;
         
         try {
           if(user) {
+             console.log('[Auth] Signing out');
              await signOut(fb.auth);
              setStatus('本地模式 (已登出)');
           } else {
+             console.log('[Auth] Signing in');
              await setPersistence(fb.auth, browserLocalPersistence);
              const provider = new GoogleAuthProvider();
              
-             // 混合模式：手機用 Redirect，電腦用 Popup
              const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+             console.log('[Auth] Device detected as mobile:', isMobile);
              
              if (isMobile) {
+                console.log('[Auth] Starting Redirect Flow');
+                sessionStorage.setItem(REDIRECT_PENDING_KEY, 'true');
                 setStatus('正在轉向 Google 登入...');
-                setIsRedirectChecking(true); // 再次鎖定狀態
+                setIsRedirectChecking(true);
                 await signInWithRedirect(fb.auth, provider);
-                // 這裡之後頁面會刷新，進入上方的 useEffect 邏輯
              } else {
+                console.log('[Auth] Starting Popup Flow');
                 setStatus('正在開啟 Google 登入視窗...');
                 await signInWithPopup(fb.auth, provider);
              }
           }
         } catch (error) {
-          console.error(error);
+          console.error('[Auth] Login Error:', error);
           setIsRedirectChecking(false);
+          sessionStorage.removeItem(REDIRECT_PENDING_KEY);
 
           if (error.code === 'auth/popup-closed-by-user') {
             setStatus('登入已取消');
             return;
           }
           if (error.code === 'auth/popup-blocked') {
-             // Fallback for Desktop if popup blocked
+             console.warn('[Auth] Popup Blocked, falling back to redirect');
              alert('彈出視窗被阻擋。嘗試轉向模式...');
+             sessionStorage.setItem(REDIRECT_PENDING_KEY, 'true');
              try {
                 await signInWithRedirect(fb.auth, new GoogleAuthProvider());
              } catch(e) {
+                console.error('[Auth] Fallback Error:', e);
                 setStatus('登入失敗: ' + e.message);
+                sessionStorage.removeItem(REDIRECT_PENDING_KEY);
              }
              return;
           }
