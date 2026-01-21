@@ -77,7 +77,7 @@
   <div id="root"></div>
 
   <script type="text/babel" data-type="module">
-    import React, { useState, useEffect } from 'react';
+    import React, { useState, useEffect, useRef } from 'react';
     import ReactDOM from 'react-dom/client';
     import { initializeApp, getApps, getApp } from 'firebase/app';
     import { getFirestore, doc, setDoc, onSnapshot, getDoc } from 'firebase/firestore';
@@ -136,11 +136,11 @@
 
       if (status.includes('失敗') || status.includes('錯誤') || status.includes('未授權')) {
         dotColor = 'bg-red-500';
-        textColor = 'text-red-500 animate-pulse';
+        textColor = 'text-red-500 font-bold';
       } else if (status.includes('同步') || status.includes('已連線') || status.includes('成功')) {
         dotColor = 'bg-green-500';
         textColor = 'text-green-600';
-      } else if (status.includes('處理中') || status.includes('上傳') || status.includes('刪除') || status.includes('合併') || status.includes('轉向')) {
+      } else if (status.includes('處理中') || status.includes('上傳') || status.includes('刪除') || status.includes('合併') || status.includes('轉向') || status.includes('檢查')) {
         dotColor = 'bg-yellow-400 animate-pulse';
         textColor = 'text-yellow-600';
       } else if (status.includes('連線') || status.includes('登入')) {
@@ -153,11 +153,11 @@
           <header className="px-6 py-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0">
             <div>
               <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.15</span>
+                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.16</span>
               </h1>
               <div className="flex items-center gap-1.5 mt-1">
                 <span className={`w-2 h-2 rounded-full transition-colors duration-300 ${dotColor}`}></span>
-                <p className={`text-[9px] font-black uppercase tracking-widest transition-colors duration-300 ${textColor}`}>
+                <p className={`text-[9px] font-black uppercase tracking-widest transition-colors duration-300 ${textColor} max-w-[200px] truncate`}>
                   {status}
                 </p>
               </div>
@@ -527,33 +527,46 @@
       });
       const [editLog, setEditLog] = useState(null);
       const [user, setUser] = useState(null);
-      const [status, setStatus] = useState('初始化');
+      // 默認狀態為檢查中，防止畫面閃爍「本地模式」
+      const [status, setStatus] = useState('檢查身分中...');
+      // 使用 ref 來追蹤是否還在等待 Redirect 結果
+      const isCheckingRedirect = useRef(true);
 
       useEffect(() => {
         const fb = initFirebase();
         if(fb) {
-          // 1. 處理 Redirect 返回後的登入結果 (必須在頁面加載時執行)
-          getRedirectResult(fb.auth).then((result) => {
-            if (result && result.user) {
-              setStatus('登入成功 (轉向返回)');
-              // onAuthStateChanged 會負責接下來的 user state update
-            }
-          }).catch((error) => {
-             console.error("Redirect Login Error:", error);
-             setStatus('登入失敗: ' + error.message);
-          });
+          // 1. 優先處理 Redirect 結果
+          // 使用 finally 確保無論成功失敗，都會釋放 checking 鎖
+          getRedirectResult(fb.auth)
+            .then((result) => {
+              if (result && result.user) {
+                setStatus('登入成功 (轉向返回)');
+                // user state update 將由 onAuthStateChanged 處理
+              }
+            })
+            .catch((error) => {
+               console.error("Redirect Login Error:", error);
+               // 直接顯示錯誤原因，方便除錯 (例如 Domain 未授權)
+               setStatus('登入錯誤: ' + (error.code || error.message));
+            })
+            .finally(() => {
+               isCheckingRedirect.current = false;
+               // 如果檢查完畢，且當前無用戶，才正式切換為本地模式 (避免覆蓋已連線狀態)
+               if (!fb.auth.currentUser && !status.includes('錯誤')) {
+                  setStatus('本地模式 (未登入)');
+               }
+            });
 
-          // 2. 監聽登入狀態與資料同步
-          onAuthStateChanged(fb.auth, async (u) => {
+          // 2. 監聽 Auth 狀態
+          const unsubscribe = onAuthStateChanged(fb.auth, async (u) => {
             setUser(u);
             const localRaw = localStorage.getItem(STORAGE_KEY);
             const localLogs = localRaw ? JSON.parse(localRaw) : [];
             
             if(!u) {
               setLogs(localLogs);
-              // 如果剛剛是 "正在轉向"，現在卻沒 user，可能是還沒載入完，保持狀態文字不變比較好
-              // 但如果是明確登出，則顯示本地模式
-              if (!status.includes('轉向')) {
+              // 只有在「非檢查 Redirect 中」且「非顯示錯誤中」才顯示本地模式
+              if (!isCheckingRedirect.current && !status.includes('錯誤')) {
                  setStatus('本地模式 (未登入)');
               }
             } else {
@@ -602,8 +615,10 @@
               });
             }
           });
+          
+          return () => unsubscribe();
         }
-      }, []);
+      }, []); // Empty dependency array ensures this runs once on mount
 
       const save = async (log) => {
         const newLogs = editLog ? logs.map(l=>l.id===log.id?log:l) : [log, ...logs];
@@ -643,15 +658,16 @@
              await signOut(fb.auth);
              setStatus('本地模式 (已登出)');
           } else {
-            // 不論電腦或手機，一律使用 Redirect
-            // 這能解決 Chrome "Message channel closed" 以及 Safari Popup Blocking 問題
+            // 開始轉向登入流程
             setStatus('正在轉向 Google 登入...');
+            isCheckingRedirect.current = true; // 鎖定狀態
             await setPersistence(fb.auth, browserLocalPersistence);
             const provider = new GoogleAuthProvider();
             await signInWithRedirect(fb.auth, provider);
           }
         } catch (error) {
           console.error(error);
+          isCheckingRedirect.current = false; // 發生錯誤時釋放鎖
           if (error.code === 'auth/unauthorized-domain') {
             setStatus('錯誤: 請在 Firebase Console 加入此網域');
           } else {
