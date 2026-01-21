@@ -128,6 +128,7 @@
 
     const STORAGE_KEY = 'fittrack_logs_v1';
     const REDIRECT_PENDING_KEY = 'auth_redirect_pending';
+    const AUTH_MODE_PREF_KEY = 'auth_mode_pref'; // 'popup' or 'redirect'
 
     let db, auth, googleProvider;
 
@@ -170,7 +171,7 @@
           <header className="px-6 py-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0">
             <div>
               <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.22 Fallback</span>
+                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.23 SmartAuth</span>
               </h1>
               <div className="flex items-center gap-1.5 mt-1">
                 <span className={`w-2 h-2 rounded-full transition-colors duration-300 ${dotColor}`}></span>
@@ -572,16 +573,21 @@
               if (result) {
                 console.log('[Auth] Redirect Result Success:', result.user.uid);
                 setStatus('登入成功 (轉向)');
-                // 成功後，確保重置重試模式
+                // 成功後，清除任何錯誤偏好
+                localStorage.removeItem(AUTH_MODE_PREF_KEY);
                 setLoginRetryMode(false);
               } else {
                 console.log('[Auth] Redirect Result: Null');
-                // 關鍵修改：如果有 Pending Key 但是 Result 是 Null，代表轉向失敗 (Cookie問題或DevTools環境)
+                // 關鍵修改：如果有 Pending Key 但是 Result 是 Null，代表轉向失敗
                 if (sessionStorage.getItem(REDIRECT_PENDING_KEY)) {
-                   console.warn('[Auth] Redirect failed (Result Null with Pending Key). Activating Retry Mode.');
-                   setStatus('轉向失效 (請重試)');
+                   console.warn('[Auth] Redirect failed. Permanently switching to Popup mode for this device.');
+                   
+                   // 永久記住這個錯誤，下次直接用 Popup
+                   localStorage.setItem(AUTH_MODE_PREF_KEY, 'popup');
+                   
+                   setStatus('轉向失效 (已切換模式)');
                    setLoginRetryMode(true);
-                   alert('轉向登入未能完成 (可能受瀏覽器 Cookie 限制)。\n\n下次點擊登入將自動切換為「彈出視窗模式」。');
+                   alert('偵測到瀏覽器限制導致轉向登入失敗。\n\n系統已自動切換為「彈出視窗模式」。\n請再次點擊登入按鈕即可。');
                 }
               }
             })
@@ -612,11 +618,9 @@
                  setStatus('驗證失效 (請重試)');
               } else if (!hasPendingKey && !status.includes('錯誤')) {
                  setStatus('本地模式 (未登入)');
-              } else {
-                 console.log('[Auth] Skip setting local mode status due to pending redirect or error');
               }
             } else {
-              // 登入成功，清除所有暫存狀態
+              // 登入成功
               sessionStorage.removeItem(REDIRECT_PENDING_KEY);
               setIsRedirectChecking(false);
               setLoginRetryMode(false);
@@ -625,7 +629,6 @@
               try {
                 const userRef = doc(fb.db, "users", u.uid);
                 const snapshot = await getDoc(userRef);
-                console.log('[DB] User Doc Exists:', snapshot.exists());
                 
                 let finalLogs = [];
 
@@ -657,7 +660,6 @@
                     const newCloudLogs = doc.data().logs;
                     setLogs(prev => {
                        if (JSON.stringify(prev) !== JSON.stringify(newCloudLogs)) {
-                         console.log('[DB] Sync update received');
                          localStorage.setItem(STORAGE_KEY, JSON.stringify(newCloudLogs));
                          return newCloudLogs;
                        }
@@ -677,7 +679,7 @@
           
           return () => unsubscribe();
         }
-      }, [loginRetryMode]); // Add loginRetryMode to dependencies
+      }, []); // Removed [loginRetryMode] dependency to fix double-run issue
 
       useEffect(() => {
          const hasPendingKey = !!sessionStorage.getItem(REDIRECT_PENDING_KEY);
@@ -724,9 +726,8 @@
 
       const handleAuth = async (e) => {
         if (e) e.preventDefault(); 
-        console.log('[Auth] Login/Logout clicked. Retry Mode:', loginRetryMode);
         
-        // 點擊登入時，先清除任何可能殘留的 pending key，確保這次是乾淨的開始
+        // 點擊登入時，先清除任何可能殘留的 pending key
         sessionStorage.removeItem(REDIRECT_PENDING_KEY);
         
         const fb = initFirebase();
@@ -744,15 +745,17 @@
              const provider = new GoogleAuthProvider();
              
              const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-             console.log('[Auth] Device detected as mobile:', isMobile);
+             // 檢查是否有永久偏好設定
+             const preferredMode = localStorage.getItem(AUTH_MODE_PREF_KEY);
+             console.log('[Auth] Device mobile:', isMobile, 'Pref:', preferredMode);
              
-             // 如果在重試模式，或者不是手機，都使用 Popup
-             if (loginRetryMode || !isMobile) {
-                console.log('[Auth] Starting Popup Flow (Force/Desktop)');
+             // 如果在重試模式，或者不是手機，或者已儲存偏好為 popup，都使用 Popup
+             if (loginRetryMode || !isMobile || preferredMode === 'popup') {
+                console.log('[Auth] Starting Popup Flow (Force/Desktop/Pref)');
                 setStatus('正在開啟 Google 登入視窗...');
                 await signInWithPopup(fb.auth, provider);
              } else {
-                console.log('[Auth] Starting Redirect Flow (Mobile)');
+                console.log('[Auth] Starting Redirect Flow (Mobile Default)');
                 sessionStorage.setItem(REDIRECT_PENDING_KEY, 'true');
                 setStatus('正在轉向 Google 登入...');
                 setIsRedirectChecking(true);
@@ -769,16 +772,8 @@
             return;
           }
           if (error.code === 'auth/popup-blocked') {
-             console.warn('[Auth] Popup Blocked, falling back to redirect');
-             alert('彈出視窗被阻擋。將嘗試轉向模式...');
-             sessionStorage.setItem(REDIRECT_PENDING_KEY, 'true');
-             try {
-                await signInWithRedirect(fb.auth, new GoogleAuthProvider());
-             } catch(e) {
-                console.error('[Auth] Fallback Error:', e);
-                setStatus('登入失敗: ' + e.message);
-                sessionStorage.removeItem(REDIRECT_PENDING_KEY);
-             }
+             console.warn('[Auth] Popup Blocked');
+             alert('彈出視窗被阻擋。請在瀏覽器設定中允許彈出視窗。');
              return;
           }
           
