@@ -171,7 +171,7 @@
           <header className="px-6 py-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0">
             <div>
               <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.24 FixLegacy</span>
+                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.27 FixUI</span>
               </h1>
               <div className="flex items-center gap-1.5 mt-1">
                 <span className={`w-2 h-2 rounded-full transition-colors duration-300 ${dotColor}`}></span>
@@ -502,7 +502,7 @@
             date: new Date().toISOString().split('T')[0], 
             durationMinutes: 60, 
             effort: 5, 
-            performance: 5, 
+            performance: 7, // Updated default to 7 for 1-10 scale
             mood: '😊', 
             friends: [] 
         };
@@ -544,16 +544,49 @@
           </div>
           <div className="bg-white p-5 rounded-3xl space-y-4 border border-slate-100">
              <div><label className="text-[10px] font-black text-slate-400 uppercase">項目</label>
-             <select value={data.subcategory} onChange={e=>setData({...data, subcategory:e.target.value})} className="w-full mt-1 p-3 bg-slate-50 rounded-xl font-bold">{CATEGORIES.find(c=>c.value===data.category).subcategories.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
+             <select value={data.subcategory} onChange={e=>setData({...data, subcategory:e.target.value})} className="w-full mt-1 p-3 bg-slate-50 rounded-xl font-bold text-slate-900">{CATEGORIES.find(c=>c.value===data.category).subcategories.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
              <div className="grid grid-cols-2 gap-4">
-               <div><label className="text-[10px] font-black text-slate-400 uppercase">日期</label><input type="date" value={data.date} onChange={e=>setData({...data, date:e.target.value})} className="w-full mt-1 p-3 bg-slate-50 rounded-xl font-bold" /></div>
-               <div><label className="text-[10px] font-black text-slate-400 uppercase">時長</label><select value={data.durationMinutes} onChange={e=>setData({...data, durationMinutes:Number(e.target.value)})} className="w-full mt-1 p-3 bg-slate-50 rounded-xl font-bold"><option value={30}>30 min</option><option value={60}>1 小時</option><option value={90}>1.5 小時</option><option value={120}>2 小時</option></select></div>
+               <div><label className="text-[10px] font-black text-slate-400 uppercase">日期</label><input type="date" value={data.date} onChange={e=>setData({...data, date:e.target.value})} className="w-full mt-1 p-3 bg-slate-50 rounded-xl font-bold text-slate-900" /></div>
+               <div><label className="text-[10px] font-black text-slate-400 uppercase">時長</label><select value={data.durationMinutes} onChange={e=>setData({...data, durationMinutes:Number(e.target.value)})} className="w-full mt-1 p-3 bg-slate-50 rounded-xl font-bold text-slate-900"><option value={30}>30 min</option><option value={60}>1 小時</option><option value={90}>1.5 小時</option><option value={120}>2 小時</option></select></div>
              </div>
           </div>
+
+          <div className="bg-white p-5 rounded-3xl space-y-4 border border-slate-100">
+            <div>
+              <div className="flex justify-between mb-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase">訓練強度 (RPE)</label>
+                <span className="text-xs font-bold text-slate-600">{data.effort} / 10</span>
+              </div>
+              <input type="range" min="1" max="10" value={data.effort} onChange={e=>setData({...data, effort:Number(e.target.value)})} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
+              <div className="flex justify-between text-[10px] text-slate-400 mt-1"><span>輕鬆</span><span>極限</span></div>
+            </div>
+
+            <div>
+              <div className="flex justify-between mb-1">
+                 <label className="text-[10px] font-black text-slate-400 uppercase">狀態表現 (Performance)</label>
+                 <span className="text-xs font-bold text-slate-600">{data.performance} / 10</span>
+              </div>
+              <input type="range" min="1" max="10" value={data.performance} onChange={e=>setData({...data, performance:Number(e.target.value)})} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-green-500" />
+              <div className="flex justify-between text-[10px] text-slate-400 mt-1"><span>不在狀態</span><span>超水準</span></div>
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-3xl border border-slate-100">
+            <label className="text-[10px] font-black text-slate-400 uppercase">訓練心情</label>
+            <div className="flex justify-between mt-2">
+              {['🤩','😊','😐','😫','😡'].map(m => (
+                 <button key={m} onClick={()=>setData({...data, mood:m})} className={`text-2xl p-2 rounded-xl transition-all ${data.mood===m ? 'bg-slate-100 scale-125' : 'opacity-50 grayscale'}`}>{m}</button>
+              ))}
+            </div>
+          </div>
+
           <div className="bg-white p-5 rounded-3xl border border-slate-100">
              <label className="text-[10px] font-black text-slate-400 uppercase">同行夥伴</label>
              <div className="flex gap-2 mt-2">
-               <input type="text" value={friendInput} onChange={e=>setFriendInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){const v=friendInput.trim(); if(v&&!data.friends.includes(v)) setData({...data, friends:[...data.friends,v]}); setFriendInput('');}}} placeholder="輸入名字..." className="flex-1 p-2 bg-slate-50 rounded-lg text-sm" />
+               <input type="text" value={friendInput} onChange={e=>setFriendInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){const v=friendInput.trim(); if(v&&!data.friends.includes(v)) setData({...data, friends:[...data.friends,v]}); setFriendInput('');}}} placeholder="輸入名字..." className="flex-1 p-3 bg-slate-50 rounded-xl text-sm text-slate-900 font-bold" />
+               <button onClick={()=>{const v=friendInput.trim(); if(v&&!data.friends.includes(v)) setData({...data, friends:[...data.friends,v]}); setFriendInput('');}} className="bg-slate-900 text-white px-4 rounded-xl font-bold flex items-center justify-center active:scale-95 transition-transform">
+                 <span className="text-xl leading-none mb-0.5">+</span>
+               </button>
              </div>
              <div className="flex flex-wrap gap-2 mt-3">{data.friends.map(f=><span key={f} onClick={()=>setData({...data, friends:data.friends.filter(x=>x!==f)})} className="bg-blue-600 text-white px-2 py-1 rounded-lg text-xs font-bold cursor-pointer">{f} ✕</span>)}</div>
              <div className="mt-3 flex flex-wrap gap-1.5">{suggestedFriends.filter(f=>!data.friends.includes(f)).map(f=><button key={f} onClick={()=>setData({...data, friends:[...data.friends,f]})} className="text-[10px] border px-2 py-1 rounded-full text-slate-500">+ {f}</button>)}</div>
