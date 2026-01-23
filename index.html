@@ -169,7 +169,7 @@
       let dotColor = 'bg-slate-300';
       let textColor = 'text-slate-400';
 
-      if (status.includes('失敗') || status.includes('錯誤') || status.includes('未授權')) {
+      if (status.includes('失敗') || status.includes('錯誤') || status.includes('未授權') || status.includes('超時')) {
         dotColor = 'bg-red-500';
         textColor = 'text-red-500 font-bold';
       } else if (status.includes('同步') || status.includes('已連線') || status.includes('成功')) {
@@ -188,7 +188,7 @@
           <header className="px-6 py-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0">
             <div>
               <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.36 SmoothAuth</span>
+                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.37 AuthFix</span>
               </h1>
               <div className="flex items-center gap-1.5 mt-1">
                 <span className={`w-2 h-2 rounded-full transition-colors duration-300 ${dotColor}`}></span>
@@ -696,6 +696,7 @@
       });
       const [editLog, setEditLog] = useState(null);
       const [user, setUser] = useState(null);
+      const [loginRetryMode, setLoginRetryMode] = useState(false);
       
       const [status, setStatus] = useState(() => {
         return sessionStorage.getItem(REDIRECT_PENDING_KEY) ? '驗證身分中 (請稍候)...' : '初始化';
@@ -704,35 +705,43 @@
       useEffect(() => {
         console.log('[Effect] Main Auth Effect Started');
         
-        // Safety: Clear the legacy preference that forced popup mode, 
-        // to give Redirect a fair chance again on mobile.
+        // Safety: Clear legacy preferences on startup
         localStorage.removeItem(AUTH_MODE_PREF_KEY);
 
         const fb = initFirebase();
         if(fb) {
+          // ITP Safety Timeout: If redirected but stuck in "Verifying" for too long,
+          // it means cookie write failed. We must reset to allow retry.
           if (sessionStorage.getItem(REDIRECT_PENDING_KEY)) {
              setStatus('驗證身分中 (Google 回傳)...');
-          }
-
-          // Note: On iOS Safari, getRedirectResult often returns null even on success.
-          // We intentionally DO NOT fail here if result is null.
-          // We rely on onAuthStateChanged to pick up the user session.
-          getRedirectResult(fb.auth)
-            .then((result) => {
-              if (result) {
-                console.log('[Auth] Redirect Result Success:', result.user.uid);
-              } else {
-                console.log('[Auth] Redirect Result: Null (Waiting for AuthStateChanged)');
-              }
-            })
-            .catch((error) => {
-               console.error('[Auth] Redirect Error:', error);
-               if (error.code !== 'auth/popup-closed-by-user') {
-                  // Only show status, don't alert to interrupt flow
-                  setStatus('轉向登入錯誤 (請重試)');
+             
+             // 8 seconds timeout to detect ITP blocking
+             const safetyTimer = setTimeout(() => {
+                if (!auth.currentUser) {
+                  console.warn('[Auth] Redirect verification timed out. Resetting state.');
                   sessionStorage.removeItem(REDIRECT_PENDING_KEY);
-               }
-            });
+                  setStatus('驗證超時 (請按登入重試)');
+                  setLoginRetryMode(true); // Switch to popup next time
+                }
+             }, 8000);
+
+             // Note: On iOS Safari, getRedirectResult often returns null even on success.
+             getRedirectResult(fb.auth)
+              .then((result) => {
+                if (result) {
+                  console.log('[Auth] Redirect Result Success:', result.user.uid);
+                  clearTimeout(safetyTimer);
+                }
+              })
+              .catch((error) => {
+                 console.error('[Auth] Redirect Error:', error);
+                 if (error.code !== 'auth/popup-closed-by-user') {
+                    setStatus('轉向登入錯誤 (請重試)');
+                    sessionStorage.removeItem(REDIRECT_PENDING_KEY);
+                    clearTimeout(safetyTimer);
+                 }
+              });
+          }
 
           const unsubscribe = onAuthStateChanged(fb.auth, async (u) => {
             console.log('[Auth] AuthStateChanged:', u ? `User ${u.uid}` : 'No User');
@@ -743,18 +752,14 @@
             if(!u) {
               setLogs(localLogs);
               const hasPendingKey = !!sessionStorage.getItem(REDIRECT_PENDING_KEY);
-              // If we still have a pending key but no user, it might be loading or failed.
-              // We let status stay as "Verifying..." until user manually retries or it resolves.
-              if (!hasPendingKey && !status.includes('錯誤')) {
+              // If not logged in and not pending, we are in local mode
+              if (!hasPendingKey && !status.includes('錯誤') && !status.includes('超時')) {
                  setStatus('本地模式 (未登入)');
               }
             } else {
-              // LOGIN SUCCESS (Detected via State Change)
-              if (sessionStorage.getItem(REDIRECT_PENDING_KEY)) {
-                 console.log('[Auth] Success detected via onAuthStateChanged. Clearing pending key.');
-                 sessionStorage.removeItem(REDIRECT_PENDING_KEY);
-                 setStatus('登入成功');
-              }
+              // LOGIN SUCCESS
+              sessionStorage.removeItem(REDIRECT_PENDING_KEY);
+              setLoginRetryMode(false);
 
               setStatus('連線中 (準備合併)...');
               try {
@@ -867,15 +872,14 @@
              const provider = new GoogleAuthProvider();
              
              const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-             const preferredMode = localStorage.getItem(AUTH_MODE_PREF_KEY);
              
-             if (!isMobile || preferredMode === 'popup') {
-                console.log('[Auth] Starting Popup Flow (Desktop/Pref)');
+             // If we detected a failure/timeout previously (loginRetryMode), forced Popup
+             if (loginRetryMode || !isMobile) {
+                console.log('[Auth] Starting Popup Flow (Retry/Desktop)');
                 setStatus('正在開啟 Google 登入視窗...');
                 await signInWithPopup(fb.auth, provider);
              } else {
                 console.log('[Auth] Starting Redirect Flow (Mobile Default)');
-                // Set flag to show verification status on return
                 sessionStorage.setItem(REDIRECT_PENDING_KEY, 'true');
                 setStatus('正在轉向 Google 登入...');
                 await signInWithRedirect(fb.auth, provider);
