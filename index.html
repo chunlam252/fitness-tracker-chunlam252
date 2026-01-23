@@ -188,7 +188,7 @@
           <header className="px-6 py-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0">
             <div>
               <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.37 AuthFix</span>
+                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.38 PopupFix</span>
               </h1>
               <div className="flex items-center gap-1.5 mt-1">
                 <span className={`w-2 h-2 rounded-full transition-colors duration-300 ${dotColor}`}></span>
@@ -715,7 +715,7 @@
           if (sessionStorage.getItem(REDIRECT_PENDING_KEY)) {
              setStatus('驗證身分中 (Google 回傳)...');
              
-             // 8 seconds timeout to detect ITP blocking
+             // 6 seconds timeout for quicker fallback
              const safetyTimer = setTimeout(() => {
                 if (!auth.currentUser) {
                   console.warn('[Auth] Redirect verification timed out. Resetting state.');
@@ -723,7 +723,7 @@
                   setStatus('驗證超時 (請按登入重試)');
                   setLoginRetryMode(true); // Switch to popup next time
                 }
-             }, 8000);
+             }, 6000);
 
              // Note: On iOS Safari, getRedirectResult often returns null even on success.
              getRedirectResult(fb.auth)
@@ -868,15 +868,15 @@
              setStatus('本地模式 (已登出)');
           } else {
              console.log('[Auth] Signing in');
-             await setPersistence(fb.auth, browserLocalPersistence);
+             // REMOVED await setPersistence() to fix Safari popup blocking
              const provider = new GoogleAuthProvider();
              
              const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
              
-             // If we detected a failure/timeout previously (loginRetryMode), forced Popup
              if (loginRetryMode || !isMobile) {
                 console.log('[Auth] Starting Popup Flow (Retry/Desktop)');
                 setStatus('正在開啟 Google 登入視窗...');
+                // Direct call, no await before it
                 await signInWithPopup(fb.auth, provider);
              } else {
                 console.log('[Auth] Starting Redirect Flow (Mobile Default)');
@@ -896,6 +896,12 @@
           if (error.code === 'auth/popup-blocked') {
              console.warn('[Auth] Popup Blocked');
              alert('彈出視窗被阻擋。請在瀏覽器設定中允許彈出視窗。');
+             return;
+          }
+          
+          if (error.code === 'auth/cancelled-popup-request') {
+             // Silently handle double-click issues
+             setStatus('操作已取消 (請重試)');
              return;
           }
           
