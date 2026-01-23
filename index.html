@@ -129,7 +129,7 @@
 
     const STORAGE_KEY = 'fittrack_logs_v1';
     const REDIRECT_PENDING_KEY = 'auth_redirect_pending';
-    const AUTH_MODE_PREF_KEY = 'auth_mode_pref'; // 'popup' or 'redirect'
+    const AUTH_MODE_PREF_KEY = 'auth_mode_pref'; 
 
     let db, auth, googleProvider;
 
@@ -139,7 +139,6 @@
         db = getFirestore(app);
         auth = getAuth(app);
         googleProvider = new GoogleAuthProvider();
-        console.log('[Firebase] Initialized successfully');
         return { auth, db, googleProvider };
       } catch (e) {
         console.error("[Firebase] Init Error:", e);
@@ -148,17 +147,15 @@
     };
 
     // --- HELPER ---
-    // Get local date string 'YYYY-MM-DD' to avoid UTC shifts
     const getLocalTodayString = () => {
       const d = new Date();
       return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     };
     
-    // Robust date parsing helper for sorting/stats
     const getLogYear = (dateStr) => parseInt(dateStr.split('-')[0]);
     
     const isDateInThisWeek = (dateStr) => {
-      const d = new Date(dateStr.replace(/-/g, '/')); // Force local parsing
+      const d = new Date(dateStr.replace(/-/g, '/')); 
       const now = new Date();
       const startOfWeek = new Date(now);
       startOfWeek.setDate(now.getDate() - now.getDay());
@@ -168,17 +165,17 @@
 
     // --- COMPONENTS ---
 
-    const Layout = ({ children, activeView, setView, user, handleAuth, status, retryMode }) => {
+    const Layout = ({ children, activeView, setView, user, handleAuth, status }) => {
       let dotColor = 'bg-slate-300';
       let textColor = 'text-slate-400';
 
-      if (status.includes('失敗') || status.includes('錯誤') || status.includes('未授權') || status.includes('阻擋') || status.includes('失效')) {
+      if (status.includes('失敗') || status.includes('錯誤') || status.includes('未授權')) {
         dotColor = 'bg-red-500';
         textColor = 'text-red-500 font-bold';
       } else if (status.includes('同步') || status.includes('已連線') || status.includes('成功')) {
         dotColor = 'bg-green-500';
         textColor = 'text-green-600';
-      } else if (status.includes('處理中') || status.includes('上傳') || status.includes('刪除') || status.includes('合併') || status.includes('轉向') || status.includes('檢查') || status.includes('開啟') || status.includes('驗證')) {
+      } else if (status.includes('處理中') || status.includes('上傳') || status.includes('驗證')) {
         dotColor = 'bg-yellow-400 animate-pulse';
         textColor = 'text-yellow-600';
       } else if (status.includes('連線') || status.includes('登入')) {
@@ -191,7 +188,7 @@
           <header className="px-6 py-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0">
             <div>
               <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.35 CleanUp</span>
+                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.36 SmoothAuth</span>
               </h1>
               <div className="flex items-center gap-1.5 mt-1">
                 <span className={`w-2 h-2 rounded-full transition-colors duration-300 ${dotColor}`}></span>
@@ -200,11 +197,6 @@
                 </p>
               </div>
             </div>
-            {status.includes('未授權') && (
-              <div className="text-[8px] bg-red-50 text-red-600 p-1 px-2 rounded-md font-bold max-w-[120px] leading-tight">
-                請在 Firebase 加入此網域
-              </div>
-            )}
           </header>
 
           <main className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50 relative">
@@ -228,10 +220,10 @@
                 {user?.photoURL ? (
                   <img src={user.photoURL} className={`w-6 h-6 rounded-full border border-slate-200 ${user ? 'ring-2 ring-blue-100' : ''}`} alt="User" />
                 ) : (
-                  <svg className={`w-6 h-6 ${retryMode && !user ? 'text-red-500 animate-bounce' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                  <svg className={`w-6 h-6`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
                 )}
               </div>
-              <span className={`text-[10px] font-bold ${retryMode && !user ? 'text-red-500' : ''}`}>{user ? '帳戶' : (retryMode ? '重試' : '登入')}</span>
+              <span className="text-[10px] font-bold">{user ? '帳戶' : '登入'}</span>
             </button>
           </nav>
         </div>
@@ -276,26 +268,19 @@
         else moodText = '😡 糟糕';
       }
 
-      // Logic to determine visible categories
-      // 1. Always show defaults
       const defaults = ['Gym', '羽毛球', '排球'];
-      // 2. Find other categories that have logs
       const activeOthers = CATEGORIES
-        .filter(c => !defaults.includes(c.value)) // Exclude defaults
-        .filter(c => logs.some(l => l.category === c.value)) // Only those with logs
+        .filter(c => !defaults.includes(c.value))
+        .filter(c => logs.some(l => l.category === c.value))
         .map(c => c.value);
       
-      // 3. Combine and maintain order
       const visibleCategories = [...defaults, ...activeOthers];
-
-      // 4. Smart Grid Layout: if 4 items, use 2-col, otherwise 3-col
       const gridClass = visibleCategories.length === 4 ? 'grid-cols-2' : 'grid-cols-3';
 
       const getCategoryStats = (cat) => {
         const catLogs = logs.filter(l => l.category === cat).sort((a,b) => new Date(b.date) - new Date(a.date));
         if (catLogs.length === 0) return { days: null, text: '無紀錄', color: 'text-slate-300' };
         
-        // Fix: Use local date for calculation
         const lastDate = new Date(catLogs[0].date.replace(/-/g, '/'));
         const today = new Date();
         today.setHours(0,0,0,0);
@@ -398,7 +383,6 @@
       const last7 = Array.from({length:7}).map((_,i) => {
         const d = new Date(); 
         d.setDate(d.getDate() - (6-i));
-        // Force local YYYY-MM-DD construction to match stored logs
         const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
         const mins = logs.filter(l=>l.date.startsWith(dateStr)).reduce((a,b)=>a+b.durationMinutes,0);
         return { day: d.getDate(), mins, isToday: i===6 };
@@ -407,10 +391,8 @@
 
       const currentYear = new Date().getFullYear();
       
-      // FIXED: Use string parsing for year to avoid timezone issues for Best Partner/Stats
       const yearLogs = logs.filter(l => getLogYear(l.date) === currentYear);
       
-      // Calculate breakdown for current year
       const breakdown = CATEGORIES.map(cat => {
         const catLogs = yearLogs.filter(l => l.category === cat.value);
         const totalMinutes = catLogs.reduce((a,b)=>a+b.durationMinutes, 0);
@@ -420,7 +402,6 @@
       
       const maxYearlyMinutes = Math.max(...breakdown.map(b => b.totalMinutes), 1);
       
-      // Overall Year Stats
       const totalYearMins = yearLogs.reduce((a,b) => a + b.durationMinutes, 0);
       const totalYearHours = (totalYearMins / 60).toFixed(1);
       const avgSessionMins = yearLogs.length > 0 ? Math.round(totalYearMins / yearLogs.length) : 0;
@@ -715,13 +696,6 @@
       });
       const [editLog, setEditLog] = useState(null);
       const [user, setUser] = useState(null);
-      const [loginRetryMode, setLoginRetryMode] = useState(false);
-      
-      const [isRedirectChecking, setIsRedirectChecking] = useState(() => {
-        const isPending = !!sessionStorage.getItem(REDIRECT_PENDING_KEY);
-        console.log('[App] Initial Redirect Check. Pending Key:', isPending);
-        return isPending;
-      });
       
       const [status, setStatus] = useState(() => {
         return sessionStorage.getItem(REDIRECT_PENDING_KEY) ? '驗證身分中 (請稍候)...' : '初始化';
@@ -729,51 +703,37 @@
 
       useEffect(() => {
         console.log('[Effect] Main Auth Effect Started');
+        
+        // Safety: Clear the legacy preference that forced popup mode, 
+        // to give Redirect a fair chance again on mobile.
+        localStorage.removeItem(AUTH_MODE_PREF_KEY);
+
         const fb = initFirebase();
         if(fb) {
-          // 1. 如果是 Redirect 回來，強制顯示驗證訊息
           if (sessionStorage.getItem(REDIRECT_PENDING_KEY)) {
-             console.log('[Effect] Found pending key, waiting for redirect result');
              setStatus('驗證身分中 (Google 回傳)...');
           }
 
-          // 2. 處理 Redirect 結果
+          // Note: On iOS Safari, getRedirectResult often returns null even on success.
+          // We intentionally DO NOT fail here if result is null.
+          // We rely on onAuthStateChanged to pick up the user session.
           getRedirectResult(fb.auth)
             .then((result) => {
               if (result) {
                 console.log('[Auth] Redirect Result Success:', result.user.uid);
-                setStatus('登入成功 (轉向)');
-                // 成功後，清除任何錯誤偏好
-                localStorage.removeItem(AUTH_MODE_PREF_KEY);
-                setLoginRetryMode(false);
               } else {
-                console.log('[Auth] Redirect Result: Null');
-                // 關鍵修改：如果有 Pending Key 但是 Result 是 Null，代表轉向失敗
-                if (sessionStorage.getItem(REDIRECT_PENDING_KEY)) {
-                   console.warn('[Auth] Redirect failed. Permanently switching to Popup mode for this device.');
-                   
-                   // 永久記住這個錯誤，下次直接用 Popup
-                   localStorage.setItem(AUTH_MODE_PREF_KEY, 'popup');
-                   
-                   setStatus('轉向失效 (已切換模式)');
-                   setLoginRetryMode(true);
-                   alert('偵測到瀏覽器限制導致轉向登入失敗。\n\n系統已自動切換為「彈出視窗模式」。\n請再次點擊登入按鈕即可。');
-                }
+                console.log('[Auth] Redirect Result: Null (Waiting for AuthStateChanged)');
               }
             })
             .catch((error) => {
                console.error('[Auth] Redirect Error:', error);
                if (error.code !== 'auth/popup-closed-by-user') {
-                  setStatus('登入錯誤: ' + error.message);
+                  // Only show status, don't alert to interrupt flow
+                  setStatus('轉向登入錯誤 (請重試)');
+                  sessionStorage.removeItem(REDIRECT_PENDING_KEY);
                }
-            })
-            .finally(() => {
-               console.log('[Auth] Redirect check finished. Removing key.');
-               sessionStorage.removeItem(REDIRECT_PENDING_KEY);
-               setIsRedirectChecking(false);
             });
 
-          // 3. 監聽 Auth 變化
           const unsubscribe = onAuthStateChanged(fb.auth, async (u) => {
             console.log('[Auth] AuthStateChanged:', u ? `User ${u.uid}` : 'No User');
             setUser(u);
@@ -783,17 +743,18 @@
             if(!u) {
               setLogs(localLogs);
               const hasPendingKey = !!sessionStorage.getItem(REDIRECT_PENDING_KEY);
-              // 如果處於重試模式，顯示特定狀態
-              if (loginRetryMode) {
-                 setStatus('驗證失效 (請重試)');
-              } else if (!hasPendingKey && !status.includes('錯誤')) {
+              // If we still have a pending key but no user, it might be loading or failed.
+              // We let status stay as "Verifying..." until user manually retries or it resolves.
+              if (!hasPendingKey && !status.includes('錯誤')) {
                  setStatus('本地模式 (未登入)');
               }
             } else {
-              // 登入成功
-              sessionStorage.removeItem(REDIRECT_PENDING_KEY);
-              setIsRedirectChecking(false);
-              setLoginRetryMode(false);
+              // LOGIN SUCCESS (Detected via State Change)
+              if (sessionStorage.getItem(REDIRECT_PENDING_KEY)) {
+                 console.log('[Auth] Success detected via onAuthStateChanged. Clearing pending key.');
+                 sessionStorage.removeItem(REDIRECT_PENDING_KEY);
+                 setStatus('登入成功');
+              }
 
               setStatus('連線中 (準備合併)...');
               try {
@@ -849,14 +810,7 @@
           
           return () => unsubscribe();
         }
-      }, []); // Removed [loginRetryMode] dependency to fix double-run issue
-
-      useEffect(() => {
-         const hasPendingKey = !!sessionStorage.getItem(REDIRECT_PENDING_KEY);
-         if (!isRedirectChecking && !user && !status.includes('錯誤') && !hasPendingKey && !loginRetryMode) {
-            setStatus('本地模式 (未登入)');
-         }
-      }, [isRedirectChecking, user, loginRetryMode]);
+      }, []);
 
       const save = async (log) => {
         const newLogs = editLog ? logs.map(l=>l.id===log.id?log:l) : [log, ...logs];
@@ -897,7 +851,6 @@
       const handleAuth = async (e) => {
         if (e) e.preventDefault(); 
         
-        // 點擊登入時，先清除任何可能殘留的 pending key
         sessionStorage.removeItem(REDIRECT_PENDING_KEY);
         
         const fb = initFirebase();
@@ -908,33 +861,28 @@
              console.log('[Auth] Signing out');
              await signOut(fb.auth);
              setStatus('本地模式 (已登出)');
-             setLoginRetryMode(false);
           } else {
              console.log('[Auth] Signing in');
              await setPersistence(fb.auth, browserLocalPersistence);
              const provider = new GoogleAuthProvider();
              
              const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-             // 檢查是否有永久偏好設定
              const preferredMode = localStorage.getItem(AUTH_MODE_PREF_KEY);
-             console.log('[Auth] Device mobile:', isMobile, 'Pref:', preferredMode);
              
-             // 如果在重試模式，或者不是手機，或者已儲存偏好為 popup，都使用 Popup
-             if (loginRetryMode || !isMobile || preferredMode === 'popup') {
-                console.log('[Auth] Starting Popup Flow (Force/Desktop/Pref)');
+             if (!isMobile || preferredMode === 'popup') {
+                console.log('[Auth] Starting Popup Flow (Desktop/Pref)');
                 setStatus('正在開啟 Google 登入視窗...');
                 await signInWithPopup(fb.auth, provider);
              } else {
                 console.log('[Auth] Starting Redirect Flow (Mobile Default)');
+                // Set flag to show verification status on return
                 sessionStorage.setItem(REDIRECT_PENDING_KEY, 'true');
                 setStatus('正在轉向 Google 登入...');
-                setIsRedirectChecking(true);
                 await signInWithRedirect(fb.auth, provider);
              }
           }
         } catch (error) {
           console.error('[Auth] Login Error:', error);
-          setIsRedirectChecking(false);
           sessionStorage.removeItem(REDIRECT_PENDING_KEY);
 
           if (error.code === 'auth/popup-closed-by-user') {
@@ -948,19 +896,17 @@
           }
           
           if (error.code === 'auth/unauthorized-domain') {
-            const msg = '錯誤: 此網域未獲授權。請在 Firebase Console 加入此網域。';
+            alert('錯誤: 此網域未獲授權。請在 Firebase Console 加入此網域。');
             setStatus('網域未授權');
-            alert(msg);
           } else {
-            const msg = '登入失敗: ' + (error.message || '未知錯誤');
+            alert('登入失敗: ' + (error.message || '未知錯誤'));
             setStatus('登入失敗');
-            alert(msg);
           }
         }
       }
 
       return (
-        <Layout activeView={view} setView={setView} user={user} handleAuth={handleAuth} status={status} retryMode={loginRetryMode}>
+        <Layout activeView={view} setView={setView} user={user} handleAuth={handleAuth} status={status}>
           {view === 'dashboard' && <Dashboard logs={logs} setView={setView} onEdit={(l)=>{setEditLog(l); setView('add');}} />}
           {view === 'trends' && <Trends logs={logs} />}
           {view === 'calendar' && <Calendar logs={logs} onEdit={(l)=>{setEditLog(l); setView('add');}} />}
