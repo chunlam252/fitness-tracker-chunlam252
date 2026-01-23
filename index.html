@@ -114,6 +114,7 @@
       { value: '跑步', subcategories: ['慢跑', '長跑', '衝刺練習', '馬拉松訓練'], color: 'bg-red-500', icon: '🏃' },
       { value: '游泳', subcategories: ['自由式', '蛙式', '蝶式', '背泳'], color: 'bg-cyan-500', icon: '🏊' },
       { value: '瑜伽', subcategories: ['哈達瑜伽', '流瑜伽', '陰瑜伽', '普拉提'], color: 'bg-purple-500', icon: '🧘' },
+      { value: '拉筋', subcategories: ['晨間伸展', '睡前放鬆', '運動後拉筋', '滾筒放鬆', '動態伸展'], color: 'bg-indigo-500', icon: '🤸' },
       { value: '其他', subcategories: ['自定義項目'], color: 'bg-slate-500', icon: '✨' },
     ];
 
@@ -190,7 +191,7 @@
           <header className="px-6 py-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0">
             <div>
               <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.32 SmartDash</span>
+                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.35 CleanUp</span>
               </h1>
               <div className="flex items-center gap-1.5 mt-1">
                 <span className={`w-2 h-2 rounded-full transition-colors duration-300 ${dotColor}`}></span>
@@ -500,7 +501,7 @@
                          <span className="text-lg">{item.icon}</span>
                          <span className="text-xs font-bold text-slate-700">{item.value}</span>
                        </div>
-                       <div className="text-[10px] font-bold text-slate-400">{item.hours} hr ({Math.round((item.totalMinutes/totalYearMins)*100)}%)</div>
+                       <div className="text-[10px] font-bold text-slate-400">{item.count} 次 • {item.hours} hr • {Math.round((item.totalMinutes/totalYearMins)*100)}%</div>
                      </div>
                      <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
                        <div className={`h-full ${item.color}`} style={{width: `${(item.totalMinutes/maxYearlyMinutes)*100}%`}}></div>
@@ -643,6 +644,7 @@
                  <label className="text-[10px] font-black text-slate-400 uppercase">時長</label>
                  <select value={data.durationMinutes} onChange={e=>setData({...data, durationMinutes:Number(e.target.value)})} className="w-full mt-1 p-3 bg-slate-50 rounded-xl font-bold text-slate-900">
                     <option value={15}>15 min</option>
+                    <option value={20}>20 min</option>
                     <option value={30}>30 min</option>
                     <option value={45}>45 min</option>
                     <option value={60}>1 小時</option>
