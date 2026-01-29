@@ -117,13 +117,12 @@
 
     console.log('[App] Modules loaded');
 
+    // Updated Categories: Removed Swimming and Yoga
     const CATEGORIES = [
       { value: 'Gym', subcategories: ['功能性訓練', '重量訓練', '帶氧運動', 'HIIT', '伸展'], color: 'bg-blue-500', icon: '💪' },
       { value: '羽毛球', subcategories: ['友誼賽', '技術練習', '正式比賽', '單打', '雙打'], color: 'bg-green-500', icon: '🏸' },
       { value: '排球', subcategories: ['打比賽', '隊訓', '街場', '技術訓練'], color: 'bg-orange-500', icon: '🏐' },
       { value: '跑步', subcategories: ['慢跑', '長跑', '衝刺練習', '馬拉松訓練'], color: 'bg-red-500', icon: '🏃' },
-      { value: '游泳', subcategories: ['自由式', '蛙式', '蝶式', '背泳'], color: 'bg-cyan-500', icon: '🏊' },
-      { value: '瑜伽', subcategories: ['哈達瑜伽', '流瑜伽', '陰瑜伽', '普拉提'], color: 'bg-purple-500', icon: '🧘' },
       { value: '拉筋', subcategories: ['晨間伸展', '睡前放鬆', '運動後拉筋', '滾筒放鬆', '動態伸展'], color: 'bg-indigo-500', icon: '🤸' },
       { value: '其他', subcategories: ['自定義項目'], color: 'bg-slate-500', icon: '✨' },
     ];
@@ -198,7 +197,7 @@
           <header className="px-6 py-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0">
             <div>
               <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.40 Social</span>
+                FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">v4.41 Lite</span>
               </h1>
               <div className="flex items-center gap-1.5 mt-1">
                 <span className={`w-2 h-2 rounded-full transition-colors duration-300 ${dotColor}`}></span>
@@ -272,7 +271,7 @@
            <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
              <div className="p-4 border-b border-slate-50 flex justify-between items-center">
                <span className="text-sm font-bold text-slate-600">應用程式版本</span>
-               <span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded-lg">v4.40 Social</span>
+               <span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded-lg">v4.41 Lite</span>
              </div>
              <div className="p-4 flex justify-between items-center">
                <span className="text-sm font-bold text-slate-600">資料庫狀態</span>
@@ -804,7 +803,7 @@
       return (
         <div className="p-6 animate-slide-up pb-24 space-y-6">
           <div className="flex justify-between items-center"><h2 className="text-2xl font-black">{initData?'編輯':'新增'}</h2><button onClick={onCancel} className="w-8 h-8 flex items-center justify-center bg-white rounded-full border">✕</button></div>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             {CATEGORIES.map(c => (
               <button key={c.value} onClick={()=>setData({...data, category:c.value, subcategory:c.subcategories[0]})} className={`p-2 rounded-2xl border-2 transition-all ${data.category===c.value ? 'border-slate-800 bg-white' : 'border-transparent bg-white opacity-40'}`}>
                 <div className="text-2xl">{c.icon}</div>
