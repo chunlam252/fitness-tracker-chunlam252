@@ -194,7 +194,7 @@
             const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
             
             const response = await ai.models.generateContent({
-              model: "gemini-3-flash-preview", // UPDATED: Use a valid model name
+              model: "gemini-3-flash-preview", 
               contents: prompt,
             });
             
@@ -491,16 +491,43 @@
                const ds = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
                
                const logsForDay = logs.filter(l=>l.date === ds);
-               // Backward compat: !l.status implies completed
-               const hasCompleted = logsForDay.some(l => l.status === 'completed' || !l.status);
-               const hasPlanned = logsForDay.some(l => l.status === 'planned');
+               
+               let dayIcon = null;
+               let isPlanned = false;
+               
+               if (logsForDay.length > 0) {
+                 // 1. Prioritize Completed over Planned
+                 const completedLogs = logsForDay.filter(l => l.status === 'completed' || !l.status);
+                 
+                 let targetLog;
+                 if (completedLogs.length > 0) {
+                   // If multiple completed, pick the one with longest duration
+                   targetLog = completedLogs.sort((a,b) => (b.durationMinutes||0) - (a.durationMinutes||0))[0];
+                   isPlanned = false;
+                 } else {
+                   // If only planned exists
+                   targetLog = logsForDay[0];
+                   isPlanned = true;
+                 }
+                 
+                 if (targetLog) {
+                   const cat = CATEGORIES.find(c => c.value === targetLog.category);
+                   if (cat) dayIcon = cat.icon;
+                 }
+               }
 
                return (
-                 <button key={i} onClick={()=>setSel(ds)} className={`aspect-square rounded-xl flex flex-col items-center justify-center relative transition-all ${sel===ds ? 'bg-slate-800 text-white shadow-lg scale-105' : 'hover:bg-slate-50 text-slate-700'}`}>
-                   <span className="text-xs font-bold">{d}</span>
-                   <div className="flex gap-0.5 mt-1 h-1.5">
-                     {hasCompleted && <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>}
-                     {hasPlanned && !hasCompleted && <div className="w-1.5 h-1.5 rounded-full border border-blue-400 bg-transparent"></div>}
+                 <button key={i} onClick={()=>setSel(ds)} className={`aspect-square rounded-xl flex flex-col items-center justify-start pt-1.5 relative transition-all ${sel===ds ? 'bg-slate-800 text-white shadow-lg scale-105 z-10' : 'hover:bg-slate-50 text-slate-700'}`}>
+                   <span className={`text-xs font-bold leading-none ${sel!==ds && isFutureDate(ds) ? 'text-slate-300' : ''}`}>{d}</span>
+                   
+                   <div className="flex-1 flex items-center justify-center -mt-1">
+                      {dayIcon ? (
+                        <span className={`text-base ${isPlanned ? 'opacity-40 grayscale' : ''} filter drop-shadow-sm`}>
+                          {dayIcon}
+                        </span>
+                      ) : (
+                        null
+                      )}
                    </div>
                  </button>
                )
