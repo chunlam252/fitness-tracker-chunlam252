@@ -114,7 +114,6 @@
       const today = new Date();
       today.setHours(0,0,0,0);
       const target = new Date(dateStr);
-      // If target is literally tomorrow or later
       return target > today; 
     };
 
@@ -140,7 +139,6 @@
       const [loading, setLoading] = useState(false);
       const hasFetched = useRef(false);
 
-      // Simple cache mechanism to avoid calling API on every render
       useEffect(() => {
         if (hasFetched.current) return;
         if (logs.length === 0) {
@@ -155,16 +153,17 @@
             const today = new Date();
             today.setHours(0,0,0,0);
             
+            // FIX: Include data with NO status (old data) as completed
             const history = logs
-              .filter(l => l.status === 'completed')
+              .filter(l => l.status === 'completed' || !l.status) 
               .sort((a,b) => new Date(b.date) - new Date(a.date))
-              .slice(0, 7) // Last 7 completed activities
-              .map(l => `- ${l.date}: ${l.subcategory} (${l.durationMinutes}min) [RPE:${l.effort}/10]`);
+              .slice(0, 7)
+              .map(l => `- ${l.date}: ${l.subcategory} (${l.durationMinutes}min) [RPE:${l.effort||'N/A'}/10]`);
 
             const futurePlans = logs
               .filter(l => l.status === 'planned' && new Date(l.date) >= today)
               .sort((a,b) => new Date(a.date) - new Date(b.date))
-              .slice(0, 3) // Next 3 plans
+              .slice(0, 3) 
               .map(l => `- ${l.date}: ${l.subcategory} (${l.startTime}-${l.endTime})`);
 
             if (history.length === 0 && futurePlans.length === 0) {
@@ -289,11 +288,10 @@
     };
 
     const Dashboard = ({ logs, onEdit, setView }) => {
-      // 1. Stats: ONLY completed logs
-      const completedLogs = logs.filter(l => l.status === 'completed');
+      // 1. Stats: COMPLETED or OLD DATA (undefined status)
+      const completedLogs = logs.filter(l => l.status === 'completed' || !l.status);
       
       const sorted = [...logs].sort((a,b) => {
-        // Sort by date desc (Newest/Furthest future first)
         return new Date(b.date) - new Date(a.date);
       });
 
@@ -367,9 +365,9 @@
                       
                       <div className="text-[10px] font-bold text-slate-400 uppercase mt-1 flex flex-wrap gap-2 items-center">
                         <span className={isPlanned ? "text-slate-500" : ""}>{l.date.replace(/-/g, '/')}</span>
-                        <span>•</span>
-                        <span>{l.startTime} - {l.endTime}</span>
-                        {!isPlanned && <span>• {l.mood}</span>}
+                        {l.startTime && <span>• {l.startTime} - {l.endTime}</span>}
+                        {l.durationMinutes && !l.startTime && <span>• {l.durationMinutes} min</span>}
+                        {!isPlanned && <span>• {l.mood || 'N/A'}</span>}
                       </div>
                     </div>
                     {isPlanned && (
@@ -388,25 +386,25 @@
     };
 
     const Trends = ({ logs }) => {
-      // Logic: ONLY COMPLETED logs
-      const completed = logs.filter(l => l.status === 'completed');
+      // Logic: ONLY COMPLETED logs (Backward compat: allow undefined status)
+      const completed = logs.filter(l => l.status === 'completed' || !l.status);
 
       const last7 = Array.from({length:7}).map((_,i) => {
         const d = new Date(); 
         d.setDate(d.getDate() - (6-i));
         const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-        const mins = completed.filter(l=>l.date === dateStr).reduce((a,b)=>a+b.durationMinutes,0);
+        const mins = completed.filter(l=>l.date === dateStr).reduce((a,b)=>a+(b.durationMinutes||0),0);
         return { day: d.getDate(), mins, isToday: i===6 };
       });
       const maxWeekly = Math.max(...last7.map(d=>d.mins), 60);
 
       const breakdown = CATEGORIES.map(cat => {
         const catLogs = completed.filter(l => l.category === cat.value);
-        const totalMinutes = catLogs.reduce((a,b)=>a+b.durationMinutes, 0);
+        const totalMinutes = catLogs.reduce((a,b)=>a+(b.durationMinutes||0), 0);
         return { ...cat, totalMinutes, count: catLogs.length, hours: (totalMinutes/60).toFixed(1) };
       }).filter(c => c.totalMinutes > 0).sort((a,b) => b.totalMinutes - a.totalMinutes);
 
-      const totalMins = completed.reduce((a,b) => a + b.durationMinutes, 0);
+      const totalMins = completed.reduce((a,b) => a + (b.durationMinutes||0), 0);
 
       return (
         <div className="p-6 space-y-8 animate-slide-up pb-24">
@@ -485,7 +483,8 @@
                const ds = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
                
                const logsForDay = logs.filter(l=>l.date === ds);
-               const hasCompleted = logsForDay.some(l => l.status === 'completed');
+               // Backward compat: !l.status implies completed
+               const hasCompleted = logsForDay.some(l => l.status === 'completed' || !l.status);
                const hasPlanned = logsForDay.some(l => l.status === 'planned');
 
                return (
@@ -516,8 +515,8 @@
                         {l.status === 'planned' && <span className="text-[9px] bg-slate-200 px-2 rounded-full flex items-center text-slate-500 font-bold">計劃中</span>}
                     </div>
                     <div className="text-[10px] text-slate-400 mt-1">
-                        {l.startTime} - {l.endTime}
-                        {l.status === 'completed' && ` • 強度 ${l.effort}`}
+                        {l.startTime ? `${l.startTime} - ${l.endTime}` : `${l.durationMinutes} min`}
+                        {(l.status === 'completed' || !l.status) && ` • 強度 ${l.effort||'-'}`}
                     </div>
                  </div>
                </div>
@@ -545,13 +544,16 @@
         };
         
         if (!initData) return defaults;
-        return { ...defaults, ...initData };
+        // Check for old data missing status
+        return { 
+            ...defaults, 
+            ...initData,
+            status: initData.status || 'completed' // Default old data to completed
+        };
       });
 
       const [friendInput, setFriendInput] = useState('');
 
-      // Auto-update status when Date changes (Only for new entries or if user hasn't manually set it yet logic could go here, but simple is better)
-      // Logic: If user picks future date, switch to Planned. If past/today, switch to Completed (unless user forces otherwise).
       useEffect(() => {
         if (!initData) { 
             if (isFutureDate(data.date)) {
@@ -562,7 +564,6 @@
         }
       }, [data.date]);
 
-      // Auto-calc duration
       useEffect(() => {
          const mins = calculateDuration(data.startTime, data.endTime);
          setData(prev => ({ ...prev, durationMinutes: mins }));
@@ -624,7 +625,6 @@
              </select>
           </div>
 
-          {/* Conditional Rendering based on Status */}
           {isPlanned ? (
              <div className="bg-blue-50 p-4 rounded-3xl border border-blue-100 text-center">
                  <p className="text-blue-600 font-bold text-sm">💡 這是未來計劃</p>
@@ -693,7 +693,7 @@
            </div>
            
            <div className="bg-blue-50 p-4 rounded-2xl text-[10px] text-blue-600 leading-relaxed border border-blue-100">
-               <strong>提示：</strong> 若登入出現 "Unauthorized Domain" 錯誤，代表目前的網址未在 Firebase 後台授權。您可以繼續使用訪客模式，所有功能皆可正常運作。
+               <strong>提示：</strong> 若登入失敗，代表目前的網址未在 Firebase Console 授權。
            </div>
 
            <button onClick={() => setView('dashboard')} className="w-full text-slate-400 text-xs font-bold mt-4">返回主頁</button>
@@ -702,8 +702,8 @@
     };
 
     const FriendsView = ({ logs }) => {
-      // 1. Only count COMPLETED sessions
-      const completed = logs.filter(l => l.status === 'completed');
+      // 1. Only count COMPLETED sessions (backward compat)
+      const completed = logs.filter(l => l.status === 'completed' || !l.status);
       
       const friendStats = {};
       completed.forEach(l => {
@@ -757,15 +757,10 @@
             return;
         }
         
-        // Handle Redirect Result
+        // Remove redirect logic, stick to popup flow only for simplicity across devices
         getRedirectResult(fb.auth).then(res => {
           if(res) console.log('Redirect Success');
-        }).catch(err => {
-            console.error(err);
-            if(err.code === 'auth/unauthorized-domain') {
-                setStatus('網域未授權 (本地模式)');
-            }
-        });
+        }).catch(console.error);
 
         const unsub = onAuthStateChanged(fb.auth, async (u) => {
           setUser(u);
@@ -825,14 +820,14 @@
             await signOut(fb.auth);
         } else {
            try {
-               const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+               // Force POPUP everywhere. It handles mobile correctly now in modern browsers
+               // and avoids the redirect data loss issues.
                const provider = new GoogleAuthProvider();
-               if(isMobile) await signInWithRedirect(fb.auth, provider);
-               else await signInWithPopup(fb.auth, provider);
+               await signInWithPopup(fb.auth, provider);
            } catch(e) {
                console.error("Login Error", e);
                if(e.code === 'auth/unauthorized-domain') {
-                   alert("登入失敗：目前的網域未在 Firebase Console 授權。\n\n您將切換回訪客模式，資料僅儲存於此裝置。");
+                   alert("登入失敗：目前的網域 (或IP) 未在 Firebase Console 授權。\n請使用 'localhost' 或新增此網域。");
                } else {
                    alert("登入錯誤: " + e.message);
                }
