@@ -153,7 +153,7 @@
             const today = new Date();
             today.setHours(0,0,0,0);
             
-            // FIX: Include data with NO status (old data) as completed
+            // Include data with NO status (old data) as completed
             const history = logs
               .filter(l => l.status === 'completed' || !l.status) 
               .sort((a,b) => new Date(b.date) - new Date(a.date))
@@ -192,10 +192,20 @@
             `;
 
             const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-            const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
-            const result = await model.generateContent(prompt);
-            const response = await result.response;
-            setAdvice(response.text());
+            
+            // Correct API call for @google/genai SDK
+            const response = await ai.models.generateContent({
+              model: "gemini-2.5-flash-latest", // Use the latest Flash model
+              contents: prompt,
+            });
+            
+            // In new SDK, .text is a getter property, NOT a function
+            if (response.text) {
+              setAdvice(response.text);
+            } else {
+              setAdvice("AI 正在思考中...");
+            }
+
           } catch (error) {
             console.error("AI Error:", error);
             setAdvice("教練暫時斷線了，請稍後再試 (可能需要檢查網絡) 😵‍💫");
