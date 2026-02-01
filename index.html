@@ -27,8 +27,11 @@
   <script src="https://unpkg.com/vconsole@latest/dist/vconsole.min.js"></script>
   <script>
     // Initialize vConsole immediately
-    var vConsole = new VConsole();
-    console.log('[System] vConsole initialized');
+    try {
+      var vConsole = new VConsole();
+      console.log('[System] vConsole initialized');
+    } catch(e) { console.warn('vConsole init failed', e); }
+    
     window.onerror = function(msg, url, line, col, error) {
       console.error('[Global Error]', msg, 'Line:', line, 'Error:', error);
     };
@@ -80,8 +83,10 @@
     }
   </style>
   
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Fix: Pin Babel version to 7.24.7 to avoid "targets" error in latest version -->
+  <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
   
+  <!-- Fix: Remove React 19 conflict -->
   <script type="importmap">
 {
   "imports": {
@@ -90,7 +95,7 @@
     "firebase/app": "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js",
     "firebase/auth": "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js",
     "firebase/firestore": "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js",
-    "react/": "https://esm.sh/react@^19.2.3/"
+    "react/": "https://esm.sh/react@^19.2.4/"
   }
 }
 </script>
