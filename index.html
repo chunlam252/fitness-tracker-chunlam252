@@ -102,8 +102,7 @@
       appId: "1:629880531604:web:76fd44292a79fbdad86281"
     };
 
-    const STORAGE_KEY = 'fittrack_logs_v2'; // Upgraded key for new data structure
-    const REDIRECT_PENDING_KEY = 'auth_redirect_pending';
+    const STORAGE_KEY = 'fittrack_logs_v2'; 
     
     // --- HELPER ---
     const getLocalTodayString = () => {
@@ -115,7 +114,8 @@
       const today = new Date();
       today.setHours(0,0,0,0);
       const target = new Date(dateStr);
-      return target > today;
+      // If target is literally tomorrow or later
+      return target > today; 
     };
 
     const calculateDuration = (start, end) => {
@@ -131,7 +131,7 @@
       try {
         const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
         return { auth: getAuth(app), db: getFirestore(app) };
-      } catch (e) { console.error(e); return null; }
+      } catch (e) { console.error("Firebase init error:", e); return null; }
     };
 
     // --- AI COMPONENT ---
@@ -140,8 +140,13 @@
       const [loading, setLoading] = useState(false);
       const hasFetched = useRef(false);
 
+      // Simple cache mechanism to avoid calling API on every render
       useEffect(() => {
-        if (hasFetched.current || logs.length === 0) return;
+        if (hasFetched.current) return;
+        if (logs.length === 0) {
+           setAdvice("還沒有足夠的數據，請先記錄幾次運動！💪");
+           return;
+        }
         
         const fetchAdvice = async () => {
           setLoading(true);
@@ -153,30 +158,38 @@
             const history = logs
               .filter(l => l.status === 'completed')
               .sort((a,b) => new Date(b.date) - new Date(a.date))
-              .slice(0, 10) // Last 10 activities
-              .map(l => `- ${l.date}: ${l.subcategory} (${l.durationMinutes}min), RPE:${l.effort}/10, Mood:${l.mood}`);
+              .slice(0, 7) // Last 7 completed activities
+              .map(l => `- ${l.date}: ${l.subcategory} (${l.durationMinutes}min) [RPE:${l.effort}/10]`);
 
-            const plan = logs
+            const futurePlans = logs
               .filter(l => l.status === 'planned' && new Date(l.date) >= today)
               .sort((a,b) => new Date(a.date) - new Date(b.date))
               .slice(0, 3) // Next 3 plans
-              .map(l => `- ${l.date}: ${l.subcategory} (${l.durationMinutes}min)`);
+              .map(l => `- ${l.date}: ${l.subcategory} (${l.startTime}-${l.endTime})`);
+
+            if (history.length === 0 && futurePlans.length === 0) {
+                setAdvice("歡迎使用 FitTrack！試著新增第一筆運動紀錄吧！✨");
+                setLoading(false);
+                return;
+            }
 
             const prompt = `
-              Role: Professional Sports Coach.
-              Context:
-              [History (Last 7-10 entries)]:
-              ${history.join('\n')}
+              Role: Professional Personal Trainer.
+              User's Current Date: ${getLocalTodayString()}
+
+              [Past 7 Days History (Completed)]:
+              ${history.join('\n') || "No recent history."}
               
-              [Future Plan (Next few days)]:
-              ${plan.join('\n')}
+              [Upcoming Plans (Future)]:
+              ${futurePlans.join('\n') || "No future plans."}
               
-              Task: Analyze the user's load. Give a specific recommendation for TODAY (Date: ${getLocalTodayString()}).
-              Rules:
-              1. If high load recently + hard plan tomorrow -> Suggest Rest/Light recovery.
-              2. If low load -> Suggest specific workout.
-              3. Keep it concise (max 2 sentences). Use Emoji. Be encouraging but scientific.
-              4. Language: Traditional Chinese (Cantonese colloquial style is preferred).
+              Task: Analyze the user's fatigue and schedule. Provide a specific, short recommendation for TODAY.
+              Guidelines:
+              1. If they have a hard workout planned tomorrow, suggest recovery today.
+              2. If they exercised heavily yesterday, check if they need rest.
+              3. If no plans and no recent activity, encourage them to move.
+              4. Language: Traditional Chinese (Hong Kong colloquial style).
+              5. Keep it under 50 words. Use emojis.
             `;
 
             const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
@@ -186,7 +199,7 @@
             setAdvice(response.text());
           } catch (error) {
             console.error("AI Error:", error);
-            setAdvice("教練暫時休息中 (連線問題)");
+            setAdvice("教練暫時斷線了，請稍後再試 (可能需要檢查網絡) 😵‍💫");
           } finally {
             setLoading(false);
             hasFetched.current = true;
@@ -194,26 +207,26 @@
         };
 
         fetchAdvice();
-      }, [logs]); // Re-run if logs change dramatically, but useRef guards single execution per session usually
-
-      if (!advice && !loading) return null;
+      }, [logs]); 
 
       return (
-        <div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-[2rem] p-5 text-white shadow-lg mb-6 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full blur-2xl -mr-10 -mt-10"></div>
-          <div className="flex items-start gap-3 relative z-10">
-            <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-xl shrink-0 backdrop-blur-sm">
+        <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-[2rem] p-5 text-white shadow-lg shadow-indigo-200 mb-6 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
+          <div className="flex items-start gap-4 relative z-10">
+            <div className="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center text-2xl shrink-0 backdrop-blur-sm border border-white/10">
               🤖
             </div>
-            <div className="flex-1">
-              <div className="text-[10px] font-bold text-indigo-100 uppercase tracking-widest mb-1">AI 智能教練</div>
+            <div className="flex-1 min-h-[3rem] flex flex-col justify-center">
+              <div className="text-[10px] font-bold text-indigo-100 uppercase tracking-widest mb-1 flex items-center gap-1">
+                AI 智能教練 <span className="bg-white/20 px-1.5 rounded text-[8px]">GEMINI</span>
+              </div>
               {loading ? (
-                <div className="space-y-2 animate-pulse">
-                  <div className="h-3 bg-white/20 rounded w-3/4"></div>
-                  <div className="h-3 bg-white/20 rounded w-1/2"></div>
+                <div className="space-y-2 animate-pulse mt-1">
+                  <div className="h-3 bg-white/20 rounded-full w-3/4"></div>
+                  <div className="h-3 bg-white/20 rounded-full w-1/2"></div>
                 </div>
               ) : (
-                <p className="text-sm font-medium leading-relaxed">{advice}</p>
+                <p className="text-sm font-medium leading-relaxed tracking-wide">{advice}</p>
               )}
             </div>
           </div>
@@ -223,24 +236,27 @@
 
     // --- MAIN APP COMPONENTS ---
 
-    const Layout = ({ children, activeView, setView, user, status }) => (
+    const Layout = ({ children, activeView, setView, user, status, onAuth }) => (
       <div className="flex flex-col h-[100dvh] max-w-md mx-auto bg-white shadow-2xl relative overflow-hidden border-x border-slate-100">
         <header className="px-6 py-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0">
           <div>
             <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-              FitTrack <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">AI Edition</span>
+              FitTrack
             </h1>
             <div className="flex items-center gap-1.5 mt-1">
-              <div className={`w-1.5 h-1.5 rounded-full ${status.includes('連線') || status.includes('同步') ? 'bg-green-500' : 'bg-slate-300'}`}></div>
+              <div className={`w-1.5 h-1.5 rounded-full ${status.includes('連線') || status.includes('同步') ? 'bg-green-500' : (status.includes('錯') ? 'bg-red-500' : 'bg-slate-300')}`}></div>
               <p className="text-[9px] font-bold text-slate-400">{status}</p>
             </div>
           </div>
-          <button onClick={() => setView('settings')} className="p-2 text-slate-400 hover:bg-slate-50 rounded-full">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+          <button onClick={() => setView('settings')} className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 hover:bg-slate-100 transition-colors">
+            {user?.photoURL ? 
+              <img src={user.photoURL} className="w-full h-full rounded-full object-cover border border-slate-200" alt="user" /> : 
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+            }
           </button>
         </header>
         <main className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50 relative">{children}</main>
-        <nav className="shrink-0 bg-white border-t border-slate-100 grid grid-cols-5 items-end pb-6 pt-2 px-2 z-30 safe-area-pb shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)]">
+        <nav className="shrink-0 bg-white border-t border-slate-100 grid grid-cols-5 items-end pb-6 pt-2 px-2 z-30 safe-area-pb shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.05)]">
           <NavBtn active={activeView === 'dashboard'} onClick={() => setView('dashboard')} icon="home" label="主頁" />
           <NavBtn active={activeView === 'trends'} onClick={() => setView('trends')} icon="chart" label="統計" />
           <div className="flex justify-center -mt-12 relative z-10 pointer-events-none">
@@ -273,13 +289,11 @@
     };
 
     const Dashboard = ({ logs, onEdit, setView }) => {
-      // Logic: Only calculate stats for COMPLETED logs
+      // 1. Stats: ONLY completed logs
       const completedLogs = logs.filter(l => l.status === 'completed');
       
       const sorted = [...logs].sort((a,b) => {
-        // Sort: Plans (Future -> Far Future) then Completed (New -> Old) ? 
-        // Or just straightforward Date Descending? 
-        // Let's do Date Descending (Newest first) for simplicity in list
+        // Sort by date desc (Newest/Furthest future first)
         return new Date(b.date) - new Date(a.date);
       });
 
@@ -292,7 +306,6 @@
         return d >= startOfWeek;
       }).length;
       
-      // Mood logic
       const last5 = completedLogs.sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,5);
       const moodMap = { '🤩': 5, '😊': 4, '😐': 3, '😫': 2, '😡': 1 };
       let moodText = '暫無';
@@ -306,32 +319,25 @@
         else moodText = '😡 糟糕';
       }
 
-      const activeCategories = [...new Set(completedLogs.map(l => l.category))];
-      const defaults = ['Gym', '羽毛球', '排球'];
-      const displayCats = [...defaults, ...activeCategories.filter(c => !defaults.includes(c))].slice(0, 3); // Just show top 3 slots
-
       return (
         <div className="p-6 space-y-6 animate-slide-up pb-24">
-          {/* 1. AI Coach Section */}
           <SmartCoach logs={logs} />
 
-          {/* 2. Quick Stats Row */}
           <div className="grid grid-cols-2 gap-4">
              <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between h-28">
                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">本週完成</div>
                <div className="text-3xl font-black text-slate-800">{thisWeekCount}<span className="text-sm font-bold text-slate-400 ml-1">次</span></div>
              </div>
              <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between h-28">
-               <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">近期狀態</div>
+               <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">近期心情</div>
                <div className="text-lg font-black text-slate-800">{moodText}</div>
              </div>
           </div>
 
-          {/* 3. List */}
           <div>
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">最近行程</h3>
-              <button onClick={()=>setView('calendar')} className="text-xs font-bold text-blue-600">查看全部</button>
+              <button onClick={()=>setView('calendar')} className="text-xs font-bold text-blue-600">查看日曆</button>
             </div>
             <div className="space-y-3">
               {sorted.slice(0, 10).map(l => {
@@ -343,28 +349,34 @@
                     key={l.id} 
                     onClick={()=>onEdit(l)} 
                     className={`
-                      relative p-4 rounded-3xl border flex items-center gap-4 active:scale-[0.98] transition-transform cursor-pointer
+                      relative p-4 rounded-3xl border flex items-center gap-4 active:scale-[0.98] transition-all cursor-pointer group
                       ${isPlanned 
-                        ? 'bg-slate-50 border-dashed border-slate-300 opacity-80' 
+                        ? 'bg-transparent border-dashed border-slate-300 opacity-75 hover:opacity-100' 
                         : 'bg-white shadow-sm border-slate-100'
                       }
                     `}
                   >
-                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl shadow-inner ${isPlanned ? 'bg-slate-200 text-slate-400' : `${c.color} text-white`}`}>
+                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl shadow-inner transition-colors ${isPlanned ? 'bg-slate-100 text-slate-400' : `${c.color} text-white`}`}>
                       {c.icon}
                     </div>
                     <div className="flex-1">
                       <div className="flex justify-between items-start">
                          <h4 className={`font-bold text-sm ${isPlanned ? 'text-slate-500' : 'text-slate-800'}`}>{l.subcategory}</h4>
-                         {isPlanned && <span className="text-[9px] font-bold bg-slate-200 text-slate-500 px-2 py-0.5 rounded-full">計劃中</span>}
+                         {isPlanned && <span className="text-[9px] font-bold bg-slate-200 text-slate-500 px-2 py-0.5 rounded-full">計劃</span>}
                       </div>
                       
-                      <div className="text-[10px] font-bold text-slate-400 uppercase mt-0.5 flex flex-wrap gap-2 items-center">
-                        <span>{l.date.replace(/-/g, '/')}</span>
-                        {l.startTime && <span>• {l.startTime}-{l.endTime}</span>}
-                        <span>• {l.durationMinutes} min</span>
+                      <div className="text-[10px] font-bold text-slate-400 uppercase mt-1 flex flex-wrap gap-2 items-center">
+                        <span className={isPlanned ? "text-slate-500" : ""}>{l.date.replace(/-/g, '/')}</span>
+                        <span>•</span>
+                        <span>{l.startTime} - {l.endTime}</span>
+                        {!isPlanned && <span>• {l.mood}</span>}
                       </div>
                     </div>
+                    {isPlanned && (
+                        <div className="absolute right-4 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full border border-slate-200 flex items-center justify-center text-slate-300 group-hover:bg-green-500 group-hover:text-white group-hover:border-transparent transition-all">
+                            ✓
+                        </div>
+                    )}
                   </div>
                 )
               })}
@@ -376,7 +388,7 @@
     };
 
     const Trends = ({ logs }) => {
-      // Filter for COMPLETED only
+      // Logic: ONLY COMPLETED logs
       const completed = logs.filter(l => l.status === 'completed');
 
       const last7 = Array.from({length:7}).map((_,i) => {
@@ -410,7 +422,7 @@
           </section>
 
           <section>
-            <h3 className="text-sm font-black text-slate-800 mb-4 uppercase tracking-widest">過去 7 天趨勢</h3>
+            <h3 className="text-sm font-black text-slate-800 mb-4 uppercase tracking-widest">過去 7 天趨勢 (已完成)</h3>
             <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 h-48 flex items-end justify-between gap-2">
                {last7.map((d,i) => (
                  <div key={i} className="flex-1 flex flex-col items-center gap-1 h-full justify-end group">
@@ -423,7 +435,7 @@
 
           {breakdown.length > 0 && (
              <section>
-               <h3 className="text-sm font-black text-slate-800 mb-4 uppercase tracking-widest">運動項目分佈</h3>
+               <h3 className="text-sm font-black text-slate-800 mb-4 uppercase tracking-widest">項目分佈</h3>
                <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4">
                  {breakdown.map((item) => (
                    <div key={item.value}>
@@ -461,8 +473,8 @@
            <div className="flex justify-between items-center mb-6">
              <h2 className="text-xl font-black text-slate-800">{date.toLocaleString('zh-HK',{month:'long',year:'numeric'})}</h2>
              <div className="flex gap-2">
-               <button onClick={()=>setDate(new Date(date.getFullYear(),date.getMonth()-1,1))} className="p-2 border rounded-lg text-slate-500">←</button>
-               <button onClick={()=>setDate(new Date(date.getFullYear(),date.getMonth()+1,1))} className="p-2 border rounded-lg text-slate-500">→</button>
+               <button onClick={()=>setDate(new Date(date.getFullYear(),date.getMonth()-1,1))} className="p-2 border rounded-lg text-slate-500 hover:bg-slate-50">←</button>
+               <button onClick={()=>setDate(new Date(date.getFullYear(),date.getMonth()+1,1))} className="p-2 border rounded-lg text-slate-500 hover:bg-slate-50">→</button>
              </div>
            </div>
 
@@ -479,9 +491,9 @@
                return (
                  <button key={i} onClick={()=>setSel(ds)} className={`aspect-square rounded-xl flex flex-col items-center justify-center relative transition-all ${sel===ds ? 'bg-slate-800 text-white shadow-lg scale-105' : 'hover:bg-slate-50 text-slate-700'}`}>
                    <span className="text-xs font-bold">{d}</span>
-                   <div className="flex gap-0.5 mt-1">
+                   <div className="flex gap-0.5 mt-1 h-1.5">
                      {hasCompleted && <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>}
-                     {hasPlanned && <div className="w-1.5 h-1.5 rounded-full border border-blue-400"></div>}
+                     {hasPlanned && !hasCompleted && <div className="w-1.5 h-1.5 rounded-full border border-blue-400 bg-transparent"></div>}
                    </div>
                  </button>
                )
@@ -494,14 +506,18 @@
                 <span className="text-[10px] font-bold text-slate-400">{dayLogs.length} 筆行程</span>
              </div>
              {dayLogs.map(l => (
-               <div key={l.id} onClick={()=>onEdit(l)} className={`p-4 rounded-3xl border flex items-center gap-4 cursor-pointer ${l.status==='planned' ? 'bg-slate-50 border-dashed border-slate-300' : 'bg-white border-slate-100'}`}>
+               <div key={l.id} onClick={()=>onEdit(l)} className={`p-4 rounded-3xl border flex items-center gap-4 cursor-pointer transition-colors ${l.status==='planned' ? 'bg-slate-50 border-dashed border-slate-300 hover:border-blue-300' : 'bg-white border-slate-100 hover:border-slate-300'}`}>
                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg ${l.status==='planned'?'bg-slate-200 text-slate-500':`${CATEGORIES.find(c=>c.value===l.category)?.color} text-white`}`}>
                     {CATEGORIES.find(c=>c.value===l.category)?.icon}
                  </div>
                  <div className="flex-1">
-                    <div className="font-bold text-slate-800 text-sm">{l.subcategory}</div>
-                    <div className="text-[10px] text-slate-400">
-                        {l.status === 'planned' ? '計劃中' : '已完成'} • {l.startTime}-{l.endTime}
+                    <div className="flex justify-between">
+                        <div className="font-bold text-slate-800 text-sm">{l.subcategory}</div>
+                        {l.status === 'planned' && <span className="text-[9px] bg-slate-200 px-2 rounded-full flex items-center text-slate-500 font-bold">計劃中</span>}
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-1">
+                        {l.startTime} - {l.endTime}
+                        {l.status === 'completed' && ` • 強度 ${l.effort}`}
                     </div>
                  </div>
                </div>
@@ -512,7 +528,7 @@
       )
     }
 
-    const Form = ({ onSave, onCancel, onDelete, initData, allLogs }) => {
+    const Form = ({ onSave, onCancel, onDelete, initData }) => {
       const [data, setData] = useState(() => {
         const defaults = { 
             category: 'Gym', 
@@ -534,9 +550,10 @@
 
       const [friendInput, setFriendInput] = useState('');
 
-      // Auto-update status based on date
+      // Auto-update status when Date changes (Only for new entries or if user hasn't manually set it yet logic could go here, but simple is better)
+      // Logic: If user picks future date, switch to Planned. If past/today, switch to Completed (unless user forces otherwise).
       useEffect(() => {
-        if (!initData) { // Only auto-switch for new entries
+        if (!initData) { 
             if (isFutureDate(data.date)) {
                 setData(prev => ({ ...prev, status: 'planned' }));
             } else {
@@ -560,7 +577,7 @@
              <button onClick={onCancel} className="w-8 h-8 flex items-center justify-center bg-white rounded-full border">✕</button>
           </div>
 
-          <div className="bg-white p-5 rounded-3xl space-y-4 border border-slate-100">
+          <div className="bg-white p-5 rounded-3xl space-y-4 border border-slate-100 shadow-sm">
              <div className="grid grid-cols-2 gap-4">
                <div>
                    <label className="text-[10px] font-black text-slate-400 uppercase">日期</label>
@@ -577,16 +594,17 @@
 
              <div className="grid grid-cols-2 gap-4">
                 <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase">開始</label>
+                    <label className="text-[10px] font-black text-slate-400 uppercase">開始時間</label>
                     <input type="time" value={data.startTime} onChange={e=>setData({...data, startTime:e.target.value})} className="w-full mt-1 p-3 bg-slate-50 rounded-xl font-bold text-slate-900" />
                 </div>
                 <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase">結束</label>
+                    <label className="text-[10px] font-black text-slate-400 uppercase">結束時間</label>
                     <input type="time" value={data.endTime} onChange={e=>setData({...data, endTime:e.target.value})} className="w-full mt-1 p-3 bg-slate-50 rounded-xl font-bold text-slate-900" />
                 </div>
              </div>
-             <div className="text-center text-xs text-slate-400 font-bold">
-                 共 {Math.floor(data.durationMinutes/60)} 小時 {data.durationMinutes%60} 分鐘
+             
+             <div className="flex items-center justify-center gap-2 text-xs text-slate-400 font-bold bg-slate-50 py-2 rounded-lg">
+                 <span>⏱️ 自動計算: {Math.floor(data.durationMinutes/60)} 小時 {data.durationMinutes%60} 分鐘</span>
              </div>
           </div>
 
@@ -599,59 +617,60 @@
             ))}
           </div>
 
-          <div className="bg-white p-4 rounded-3xl border border-slate-100">
+          <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm">
              <label className="text-[10px] font-black text-slate-400 uppercase">項目細節</label>
              <select value={data.subcategory} onChange={e=>setData({...data, subcategory:e.target.value})} className="w-full mt-1 p-3 bg-slate-50 rounded-xl font-bold text-slate-900">
                 {CATEGORIES.find(c=>c.value===data.category).subcategories.map(s=><option key={s} value={s}>{s}</option>)}
              </select>
           </div>
 
-          {/* Only show Mood/Effort if NOT planned */}
-          {!isPlanned && (
+          {/* Conditional Rendering based on Status */}
+          {isPlanned ? (
+             <div className="bg-blue-50 p-4 rounded-3xl border border-blue-100 text-center">
+                 <p className="text-blue-600 font-bold text-sm">💡 這是未來計劃</p>
+                 <p className="text-[10px] text-blue-400 mt-1">強度、心情與夥伴功能將在您將狀態改為「已完成」後顯示。</p>
+             </div>
+          ) : (
              <div className="space-y-6 animate-fade-in">
-                <div className="bg-white p-5 rounded-3xl space-y-4 border border-slate-100">
+                <div className="bg-white p-5 rounded-3xl space-y-4 border border-slate-100 shadow-sm">
                     <div>
                     <div className="flex justify-between mb-1">
-                        <label className="text-[10px] font-black text-slate-400 uppercase">訓練強度 (RPE)</label>
+                        <label className="text-[10px] font-black text-slate-400 uppercase">自覺強度 (RPE)</label>
                         <span className="text-xs font-bold text-slate-600">{data.effort} / 10</span>
                     </div>
                     <input type="range" min="1" max="10" value={data.effort} onChange={e=>setData({...data, effort:Number(e.target.value)})} className="w-full h-8 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
+                    <div className="flex justify-between text-[8px] text-slate-400 font-bold px-1">
+                        <span>輕鬆</span>
+                        <span>極限</span>
                     </div>
-
-                    <div>
-                    <div className="flex justify-between mb-1">
-                        <label className="text-[10px] font-black text-slate-400 uppercase">狀態表現</label>
-                        <span className="text-xs font-bold text-slate-600">{data.performance} / 10</span>
-                    </div>
-                    <input type="range" min="1" max="10" value={data.performance} onChange={e=>setData({...data, performance:Number(e.target.value)})} className="w-full h-8 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-green-500" />
                     </div>
                 </div>
 
-                <div className="bg-white p-5 rounded-3xl border border-slate-100">
+                <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
                     <label className="text-[10px] font-black text-slate-400 uppercase">訓練心情</label>
                     <div className="flex justify-between mt-2">
                     {['🤩','😊','😐','😫','😡'].map(m => (
-                        <button key={m} onClick={()=>setData({...data, mood:m})} className={`text-2xl p-2 rounded-xl transition-all ${data.mood===m ? 'bg-slate-100 scale-125' : 'opacity-50 grayscale'}`}>{m}</button>
+                        <button key={m} onClick={()=>setData({...data, mood:m})} className={`text-2xl p-2 rounded-xl transition-all ${data.mood===m ? 'bg-slate-100 scale-125 shadow-sm ring-1 ring-slate-200' : 'opacity-40 grayscale'}`}>{m}</button>
                     ))}
                     </div>
+                </div>
+
+                <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
+                    <label className="text-[10px] font-black text-slate-400 uppercase">同行夥伴</label>
+                    <div className="flex gap-2 mt-2">
+                    <input type="text" value={friendInput} onChange={e=>setFriendInput(e.target.value)} placeholder="輸入名字..." className="flex-1 p-3 bg-slate-50 rounded-xl text-sm text-slate-900 font-bold" />
+                    <button onClick={()=>{const v=friendInput.trim(); if(v&&!data.friends.includes(v)) setData({...data, friends:[...data.friends,v]}); setFriendInput('');}} className="bg-slate-900 text-white px-4 rounded-xl font-bold shadow-lg">+</button>
+                    </div>
+                    <div className="flex flex-wrap gap-2 mt-3">{data.friends.map(f=><span key={f} onClick={()=>setData({...data, friends:data.friends.filter(x=>x!==f)})} className="bg-blue-600 text-white px-2 py-1 rounded-lg text-xs font-bold cursor-pointer shadow-md shadow-blue-200">{f} ✕</span>)}</div>
                 </div>
              </div>
           )}
 
-          <div className="bg-white p-5 rounded-3xl border border-slate-100">
-             <label className="text-[10px] font-black text-slate-400 uppercase">同行夥伴</label>
-             <div className="flex gap-2 mt-2">
-               <input type="text" value={friendInput} onChange={e=>setFriendInput(e.target.value)} placeholder="輸入名字..." className="flex-1 p-3 bg-slate-50 rounded-xl text-sm text-slate-900 font-bold" />
-               <button onClick={()=>{const v=friendInput.trim(); if(v&&!data.friends.includes(v)) setData({...data, friends:[...data.friends,v]}); setFriendInput('');}} className="bg-slate-900 text-white px-4 rounded-xl font-bold">+</button>
-             </div>
-             <div className="flex flex-wrap gap-2 mt-3">{data.friends.map(f=><span key={f} onClick={()=>setData({...data, friends:data.friends.filter(x=>x!==f)})} className="bg-blue-600 text-white px-2 py-1 rounded-lg text-xs font-bold cursor-pointer">{f} ✕</span>)}</div>
-          </div>
-
-          <button onClick={()=>onSave({...data, id:initData?.id||Date.now().toString()})} className={`w-full py-4 text-white rounded-2xl font-black shadow-xl ${isPlanned ? 'bg-slate-500' : 'bg-slate-900'}`}>
-              {isPlanned ? '📅 儲存計劃' : '✅ 完成紀錄'}
+          <button onClick={()=>onSave({...data, id:initData?.id||Date.now().toString()})} className={`w-full py-4 text-white rounded-2xl font-black shadow-xl transform active:scale-95 transition-all ${isPlanned ? 'bg-slate-500 shadow-slate-200' : 'bg-slate-900 shadow-slate-300'}`}>
+              {isPlanned ? '📅 儲存計劃' : '✅ 完成打卡'}
           </button>
           
-          {initData && <button onClick={()=>onDelete(initData.id)} className="w-full text-red-500 font-bold text-sm">刪除此項目</button>}
+          {initData && <button onClick={()=>onDelete(initData.id)} className="w-full text-red-400 font-bold text-sm py-2">刪除此項目</button>}
         </div>
       )
     }
@@ -661,24 +680,29 @@
          <div className="p-6 animate-slide-up space-y-6">
            <h2 className="text-2xl font-black text-slate-800">設定</h2>
            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center gap-4">
-             <div className="w-20 h-20 rounded-full bg-slate-100 flex items-center justify-center text-3xl overflow-hidden ring-4 ring-slate-50">
+             <div className="w-20 h-20 rounded-full bg-slate-100 flex items-center justify-center text-3xl overflow-hidden ring-4 ring-slate-50 shadow-inner">
                 {user?.photoURL ? <img src={user.photoURL} alt="User" className="w-full h-full object-cover" /> : '👤'}
              </div>
              <div className="text-center">
                <h3 className="font-bold text-lg text-slate-800">{user ? user.displayName : '訪客模式'}</h3>
-               <p className="text-xs text-slate-400 font-bold">{user ? user.email : '資料僅儲存於本地'}</p>
+               <p className="text-xs text-slate-400 font-bold">{user ? user.email : '資料僅儲存於瀏覽器 (Local Storage)'}</p>
              </div>
-             <button onClick={handleAuth} className="w-full py-3 rounded-2xl font-bold bg-slate-900 text-white shadow-lg active:scale-95">
-                {user ? '登出帳戶' : 'Google 登入 / 備份'}
+             <button onClick={handleAuth} className="w-full py-3 rounded-2xl font-bold bg-slate-900 text-white shadow-lg active:scale-95 transition-transform">
+                {user ? '登出帳戶' : '使用 Google 登入同步'}
              </button>
            </div>
+           
+           <div className="bg-blue-50 p-4 rounded-2xl text-[10px] text-blue-600 leading-relaxed border border-blue-100">
+               <strong>提示：</strong> 若登入出現 "Unauthorized Domain" 錯誤，代表目前的網址未在 Firebase 後台授權。您可以繼續使用訪客模式，所有功能皆可正常運作。
+           </div>
+
            <button onClick={() => setView('dashboard')} className="w-full text-slate-400 text-xs font-bold mt-4">返回主頁</button>
          </div>
        );
     };
 
     const FriendsView = ({ logs }) => {
-      // Only count COMPLETED sessions for friends
+      // 1. Only count COMPLETED sessions
       const completed = logs.filter(l => l.status === 'completed');
       
       const friendStats = {};
@@ -694,13 +718,19 @@
       return (
         <div className="p-6 animate-slide-up">
            <h2 className="text-2xl font-black text-slate-800 mb-6">好友榜單</h2>
-           {sorted.length === 0 ? <p className="text-slate-400 text-sm">還沒有和朋友一起運動的紀錄</p> : 
+           {sorted.length === 0 ? 
+             <div className="text-center py-10 opacity-50">
+                <div className="text-4xl mb-2">👥</div>
+                <p className="text-slate-400 text-sm font-bold">還沒有和朋友一起運動的紀錄</p> 
+                <p className="text-slate-300 text-xs mt-1">在「新增紀錄」時加入朋友名字即可</p>
+             </div>
+             : 
              <div className="grid grid-cols-2 gap-3">
                {sorted.map(([name, data]) => (
-                  <div key={name} className="bg-white p-4 rounded-3xl border border-slate-100 flex flex-col items-center gap-2">
-                     <div className="w-12 h-12 rounded-full bg-blue-100 text-blue-500 flex items-center justify-center font-black text-lg">{name[0]}</div>
+                  <div key={name} className="bg-white p-4 rounded-3xl border border-slate-100 flex flex-col items-center gap-2 shadow-sm">
+                     <div className="w-12 h-12 rounded-full bg-blue-100 text-blue-500 flex items-center justify-center font-black text-lg uppercase">{name[0]}</div>
                      <div className="font-bold text-slate-800">{name}</div>
-                     <div className="text-xs text-slate-400 font-bold">{data.count} 次運動</div>
+                     <div className="text-xs text-slate-400 font-bold bg-slate-50 px-2 py-1 rounded-full">{data.count} 次運動</div>
                   </div>
                ))}
              </div>
@@ -722,17 +752,25 @@
 
       useEffect(() => {
         const fb = initFirebase();
-        if(!fb) return;
+        if(!fb) {
+            setStatus('本地模式 (Firebase 未配置)');
+            return;
+        }
         
         // Handle Redirect Result
         getRedirectResult(fb.auth).then(res => {
-          if(res) { console.log('Redirect Success'); }
-        }).catch(err => console.error(err));
+          if(res) console.log('Redirect Success');
+        }).catch(err => {
+            console.error(err);
+            if(err.code === 'auth/unauthorized-domain') {
+                setStatus('網域未授權 (本地模式)');
+            }
+        });
 
         const unsub = onAuthStateChanged(fb.auth, async (u) => {
           setUser(u);
           if (u) {
-            setStatus('連線中 (同步資料)...');
+            setStatus('連線中...');
             try {
                const docRef = doc(fb.db, "users", u.uid);
                onSnapshot(docRef, (docSnap) => {
@@ -742,7 +780,6 @@
                     localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudLogs));
                     setStatus('已連線');
                  } else {
-                    // First time sync: push local to cloud
                     const local = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
                     setDoc(docRef, { logs: local, updatedAt: new Date().toISOString() });
                     setStatus('已連線 (初始化)');
@@ -761,7 +798,9 @@
         localStorage.setItem(STORAGE_KEY, JSON.stringify(newLogs));
         if (user) {
           const fb = initFirebase();
-          await setDoc(doc(fb.db, "users", user.uid), { logs: newLogs, updatedAt: new Date().toISOString() }, { merge: true });
+          if(fb) {
+            await setDoc(doc(fb.db, "users", user.uid), { logs: newLogs, updatedAt: new Date().toISOString() }, { merge: true });
+          }
         }
       };
 
@@ -780,23 +819,34 @@
 
       const handleAuth = async () => {
         const fb = initFirebase();
-        if (user) await signOut(fb.auth);
-        else {
-           // Simple mobile detection for redirect vs popup
-           const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-           const provider = new GoogleAuthProvider();
-           if(isMobile) signInWithRedirect(fb.auth, provider);
-           else signInWithPopup(fb.auth, provider);
+        if(!fb) { alert("Firebase 初始化失敗"); return; }
+        
+        if (user) {
+            await signOut(fb.auth);
+        } else {
+           try {
+               const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+               const provider = new GoogleAuthProvider();
+               if(isMobile) await signInWithRedirect(fb.auth, provider);
+               else await signInWithPopup(fb.auth, provider);
+           } catch(e) {
+               console.error("Login Error", e);
+               if(e.code === 'auth/unauthorized-domain') {
+                   alert("登入失敗：目前的網域未在 Firebase Console 授權。\n\n您將切換回訪客模式，資料僅儲存於此裝置。");
+               } else {
+                   alert("登入錯誤: " + e.message);
+               }
+           }
         }
       };
 
       return (
-        <Layout activeView={view} setView={setView} user={user} status={status}>
+        <Layout activeView={view} setView={setView} user={user} status={status} onAuth={handleAuth}>
           {view === 'dashboard' && <Dashboard logs={logs} setView={setView} onEdit={(l)=>{setEditLog(l); setView('add');}} />}
           {view === 'trends' && <Trends logs={logs} />}
           {view === 'calendar' && <Calendar logs={logs} onEdit={(l)=>{setEditLog(l); setView('add');}} />}
           {view === 'friends' && <FriendsView logs={logs} />}
-          {view === 'add' && <Form onSave={handleSave} onCancel={()=>{setEditLog(null); setView('dashboard');}} onDelete={handleDelete} initData={editLog} allLogs={logs} />}
+          {view === 'add' && <Form onSave={handleSave} onCancel={()=>{setEditLog(null); setView('dashboard');}} onDelete={handleDelete} initData={editLog} />}
           {view === 'settings' && <Settings user={user} handleAuth={handleAuth} setView={setView} />}
         </Layout>
       );
