@@ -193,13 +193,11 @@
 
             const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
             
-            // Correct API call for @google/genai SDK
             const response = await ai.models.generateContent({
-              model: "gemini-2.5-flash-latest", // Use the latest Flash model
+              model: "gemini-3-flash-preview", // UPDATED: Use a valid model name
               contents: prompt,
             });
             
-            // In new SDK, .text is a getter property, NOT a function
             if (response.text) {
               setAdvice(response.text);
             } else {
