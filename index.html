@@ -98,6 +98,7 @@
     };
 
     const STORAGE_KEY = 'fittrack_logs_v2'; 
+    const AI_CACHE_KEY = 'fittrack_ai_advice_cache';
     
     // --- HELPER ---
     const getLocalTodayString = () => {
@@ -1010,7 +1011,25 @@
       }, []);
 
       // AI Logic Function
-      const generateAiAdvice = async (currentLogs) => {
+      const generateAiAdvice = async (currentLogs, forceRefresh = false) => {
+        const todayStr = getLocalTodayString();
+        
+        // 1. Check Cache (if not forced)
+        if (!forceRefresh) {
+            const cached = localStorage.getItem(AI_CACHE_KEY);
+            if (cached) {
+                try {
+                    const parsed = JSON.parse(cached);
+                    // If the cached advice is from TODAY, use it
+                    if (parsed.date === todayStr && parsed.advice) {
+                        setAiAdvice(parsed.advice);
+                        console.log("Using cached AI advice");
+                        return;
+                    }
+                } catch(e) { console.error("Cache parse error", e); }
+            }
+        }
+
         if (!currentLogs || currentLogs.length === 0) {
             setAiAdvice("還沒有足夠的數據，請先記錄幾次運動！💪");
             return;
@@ -1036,7 +1055,7 @@
 
             const prompt = `
               Role: Professional Personal Trainer.
-              User's Current Date: ${getLocalTodayString()}
+              User's Current Date: ${todayStr}
 
               [Past 7 Days History (Completed)]:
               ${history.join('\n') || "No recent history."}
@@ -1060,12 +1079,17 @@
 
             const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
             const response = await ai.models.generateContent({
-              model: "gemini-3-flash-preview", 
+              model: "gemini-2.0-flash-exp", 
               contents: prompt,
             });
             
             if (response.text) {
               setAiAdvice(response.text);
+              // 2. Save Cache
+              localStorage.setItem(AI_CACHE_KEY, JSON.stringify({
+                  date: todayStr,
+                  advice: response.text
+              }));
             }
         } catch (error) {
             console.error("AI Error:", error);
@@ -1136,7 +1160,7 @@
                 onEdit={(l)=>{setEditLog(l); setView('add');}} 
                 aiAdvice={aiAdvice}
                 aiLoading={aiLoading}
-                onRefreshAi={() => generateAiAdvice(logs)}
+                onRefreshAi={() => generateAiAdvice(logs, true)}
              />
           )}
           {view === 'trends' && <Trends logs={logs} />}
