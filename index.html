@@ -48,7 +48,10 @@
     @keyframes pulse-slow { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
     .animate-pulse-slow { animation: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
 
+    /* iPhone Safe Area Fix */
+    .safe-area-pt { padding-top: max(1.5rem, env(safe-area-inset-top)); }
     .safe-area-pb { padding-bottom: env(safe-area-inset-bottom, 20px); }
+    
     .no-scrollbar::-webkit-scrollbar { display: none; }
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   </style>
@@ -133,35 +136,86 @@
       } catch (e) { console.error("Firebase init error:", e); return null; }
     };
 
-    // --- AI COMPONENT (Pure UI) ---
+    // --- AI COMPONENT (Collapsible & Alien Icon) ---
     const SmartCoach = ({ advice, loading, onRefresh }) => {
+      const [expanded, setExpanded] = useState(false);
+
+      // Simple logic to try and split the advice if it follows the Part 1 / Part 2 structure
+      let mainText = advice;
+      let hiddenText = null;
+
+      if (advice && !loading) {
+         // Look for "Part 2" or "每週" as a split point
+         const splitIndex = advice.search(/Part 2|每週訓練/i);
+         
+         if (splitIndex > 10) {
+             // Find the nearest newline before the split keyword to keep it clean
+             const cutOff = advice.lastIndexOf('\n', splitIndex);
+             if (cutOff !== -1) {
+                 mainText = advice.substring(0, cutOff).trim();
+                 // Clean up delimiter lines like '---'
+                 mainText = mainText.replace(/-{3,}$/, '').trim();
+                 hiddenText = advice.substring(cutOff).trim();
+             }
+         }
+      }
+
       return (
-        <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-[2rem] p-5 text-white shadow-lg shadow-indigo-200 mb-6 relative overflow-hidden">
+        <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-[2rem] p-5 text-white shadow-lg shadow-indigo-200 mb-6 relative overflow-hidden transition-all duration-300">
           <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
           
-          <div className="flex items-start gap-4 relative z-10">
-            <div className="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center text-2xl shrink-0 backdrop-blur-sm border border-white/10">
-              🤖
-            </div>
-            <div className="flex-1 min-h-[3rem] flex flex-col justify-center">
-              <div className="flex justify-between items-start">
-                  <div className="text-[10px] font-bold text-indigo-100 uppercase tracking-widest mb-1 flex items-center gap-1">
-                    AI 智能教練 <span className="bg-white/20 px-1.5 rounded text-[8px]">GEMINI</span>
-                  </div>
-                  <button onClick={onRefresh} disabled={loading} className="text-white/70 hover:text-white transition-colors disabled:opacity-50">
-                     <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                  </button>
-              </div>
-              
-              {loading ? (
-                <div className="space-y-2 animate-pulse mt-1">
+          <div className="relative z-10">
+             {/* Header */}
+             <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                   <div className="w-10 h-10 rounded-2xl bg-white/20 flex items-center justify-center text-2xl backdrop-blur-sm border border-white/10">
+                     👽
+                   </div>
+                   <div className="text-[10px] font-bold text-indigo-100 uppercase tracking-widest flex items-center gap-1">
+                     AI 智能教練 <span className="bg-white/20 px-1.5 rounded text-[8px]">GEMINI</span>
+                   </div>
+                </div>
+                <button onClick={onRefresh} disabled={loading} className="w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-colors">
+                   <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                </button>
+             </div>
+
+             {/* Content */}
+             {loading ? (
+                <div className="space-y-2 animate-pulse mt-2">
                   <div className="h-3 bg-white/20 rounded-full w-3/4"></div>
                   <div className="h-3 bg-white/20 rounded-full w-1/2"></div>
                 </div>
-              ) : (
-                <p className="text-sm font-medium leading-relaxed tracking-wide whitespace-pre-wrap">{advice}</p>
-              )}
-            </div>
+             ) : (
+                <div>
+                    <div className="text-sm font-medium leading-relaxed tracking-wide whitespace-pre-wrap">
+                        {mainText}
+                    </div>
+                    
+                    {hiddenText && (
+                        <>
+                            {expanded && (
+                                <div className="mt-4 pt-4 border-t border-white/20 animate-slide-up whitespace-pre-wrap text-sm font-medium leading-relaxed tracking-wide">
+                                    {hiddenText}
+                                </div>
+                            )}
+                            <button 
+                                onClick={() => setExpanded(!expanded)}
+                                className="w-full mt-3 py-2 text-[10px] font-bold uppercase tracking-widest bg-white/10 hover:bg-white/20 rounded-xl transition-colors flex items-center justify-center gap-2"
+                            >
+                                {expanded ? '⬆️ 收起分析' : '⬇️ 查看每週分析'}
+                            </button>
+                        </>
+                    )}
+                    
+                    {!hiddenText && advice && advice.length > 150 && (
+                        /* Fallback for long text without clear Part 2 structure */
+                        <button onClick={() => setExpanded(!expanded)} className="text-xs opacity-70 mt-2 block hover:opacity-100">
+                           {expanded ? '收起' : '... 閱讀更多'}
+                        </button>
+                    )}
+                </div>
+             )}
           </div>
         </div>
       );
@@ -171,7 +225,7 @@
 
     const Layout = ({ children, activeView, setView, user, status, onAuth }) => (
       <div className="flex flex-col h-[100dvh] max-w-md mx-auto bg-white shadow-2xl relative overflow-hidden border-x border-slate-100">
-        <header className="px-6 py-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0">
+        <header className="px-6 pb-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0 safe-area-pt">
           <div>
             <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
               FitTrack
