@@ -133,22 +133,28 @@
     const SmartCoach = ({ advice, loading, onRefresh }) => {
       const [expanded, setExpanded] = useState(false);
 
-      // Simple logic to try and split the advice if it follows the Part 1 / Part 2 structure
-      let mainText = advice;
-      let hiddenText = null;
+      // 嚴格分割邏輯
+      let part1 = advice || '';
+      let part2 = null;
 
       if (advice && !loading) {
-         // Look for "Part 2" or "每週" as a split point
-         const splitIndex = advice.search(/Part 2|每週訓練/i);
+         // 嘗試尋找 "Part 2" 或 "Part 2:" 或 "第二部分"
+         const separatorRegex = /(Part 2|第二部分)/i;
+         const match = advice.match(separatorRegex);
          
-         if (splitIndex > 10) {
-             // Find the nearest newline before the split keyword to keep it clean
-             const cutOff = advice.lastIndexOf('\n', splitIndex);
-             if (cutOff !== -1) {
-                 mainText = advice.substring(0, cutOff).trim();
-                 // Clean up delimiter lines like '---'
-                 mainText = mainText.replace(/-{3,}$/, '').trim();
-                 hiddenText = advice.substring(cutOff).trim();
+         if (match && match.index > 10) {
+             // 找到分割點
+             part1 = advice.substring(0, match.index).trim();
+             // 清理 Part 1 尾部可能多餘的分隔線
+             part1 = part1.replace(/[-_=]{3,}$/gm, '').trim();
+             
+             part2 = advice.substring(match.index).trim();
+         } else if (advice.length > 200) {
+             // 沒找到關鍵字，但太長了，強制折疊
+             const cutIndex = advice.indexOf('\n', 150); // 在 150 字後找換行
+             if (cutIndex !== -1) {
+                 part1 = advice.substring(0, cutIndex).trim() + "...";
+                 part2 = advice.substring(cutIndex).trim();
              }
          }
       }
@@ -182,30 +188,27 @@
              ) : (
                 <div>
                     <div className="text-sm font-medium leading-relaxed tracking-wide whitespace-pre-wrap">
-                        {mainText}
+                        {part1}
                     </div>
                     
-                    {hiddenText && (
+                    {part2 && (
                         <>
                             {expanded && (
                                 <div className="mt-4 pt-4 border-t border-white/20 animate-slide-up whitespace-pre-wrap text-sm font-medium leading-relaxed tracking-wide">
-                                    {hiddenText}
+                                    {part2}
                                 </div>
                             )}
                             <button 
                                 onClick={() => setExpanded(!expanded)}
-                                className="w-full mt-3 py-2 text-[10px] font-bold uppercase tracking-widest bg-white/10 hover:bg-white/20 rounded-xl transition-colors flex items-center justify-center gap-2"
+                                className="w-full mt-3 py-2 text-[10px] font-bold uppercase tracking-widest bg-white/10 hover:bg-white/20 rounded-xl transition-colors flex items-center justify-center gap-2 group"
                             >
-                                {expanded ? '⬆️ 收起分析' : '⬇️ 查看每週分析'}
+                                {expanded ? (
+                                    <span className="flex items-center gap-2">⬆️ 收起每週分析</span>
+                                ) : (
+                                    <span className="flex items-center gap-2 group-hover:scale-105 transition-transform">⬇️ 查看每週分析與建議</span>
+                                )}
                             </button>
                         </>
-                    )}
-                    
-                    {!hiddenText && advice && advice.length > 150 && (
-                        /* Fallback for long text without clear Part 2 structure */
-                        <button onClick={() => setExpanded(!expanded)} className="text-xs opacity-70 mt-2 block hover:opacity-100">
-                           {expanded ? '收起' : '... 閱讀更多'}
-                        </button>
                     )}
                 </div>
              )}
@@ -1064,6 +1067,10 @@
               ${futurePlans.join('\n') || "No future plans."}
               
               Task: Provide a 2-part analysis in Traditional Chinese (HK style).
+              
+              **IMPORTANT FORMATTING RULES**:
+              1. You MUST start the first section with exactly: "Part 1: Today's Action"
+              2. You MUST start the second section with exactly: "Part 2: Weekly Gap Analysis"
               
               Part 1: Today's Action (Status Check)
               - Based on yesterday's intensity and tomorrow's plans, should I rest or workout today?
