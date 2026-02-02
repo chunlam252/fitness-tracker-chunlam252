@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 import { CategoryOption } from './types.ts';
 
@@ -11,7 +12,7 @@ export const CATEGORIES: CategoryOption[] = [
   },
   { 
     value: '羽毛球', 
-    subcategories: ['友誼賽', '技術練習', '正式比賽', '單打', '雙打'], 
+    subcategories: ['街場/Drop-in/Friendly', '技術練習', '正式比賽'], 
     color: 'bg-green-500',
     icon: '🏸'
   },

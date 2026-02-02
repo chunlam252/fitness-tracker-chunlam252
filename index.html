@@ -23,14 +23,6 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
-  <!-- vConsole -->
-  <script src="https://unpkg.com/vconsole@latest/dist/vconsole.min.js"></script>
-  <script>
-    try {
-      var vConsole = new VConsole();
-    } catch(e) {}
-  </script>
-  
   <style>
     body {
       font-family: 'Inter', sans-serif;
@@ -89,7 +81,7 @@
 
     const CATEGORIES = [
       { value: 'Gym', subcategories: ['功能性訓練', '重量訓練', '帶氧運動', 'HIIT', '伸展'], color: 'bg-blue-500', text: 'text-blue-500', icon: '💪' },
-      { value: '羽毛球', subcategories: ['友誼賽', '技術練習', '正式比賽', '單打', '雙打'], color: 'bg-green-500', text: 'text-green-500', icon: '🏸' },
+      { value: '羽毛球', subcategories: ['街場/Drop-in/Friendly', '技術練習', '正式比賽'], color: 'bg-green-500', text: 'text-green-500', icon: '🏸' },
       { value: '排球', subcategories: ['打比賽', '隊訓', '街場/Drop-in/Friendly', '技術訓練'], color: 'bg-orange-500', text: 'text-orange-500', icon: '🏐' },
       { value: '跑步', subcategories: ['慢跑', '長跑', '衝刺練習', '馬拉松訓練'], color: 'bg-red-500', text: 'text-red-500', icon: '🏃' },
       { value: '拉筋', subcategories: ['晨間伸展', '睡前放鬆', '運動後拉筋', '滾筒放鬆', '動態伸展'], color: 'bg-indigo-500', text: 'text-indigo-500', icon: '🤸' },
@@ -382,20 +374,36 @@
     const Trends = ({ logs }) => {
       // Logic: ONLY COMPLETED logs
       const completed = logs.filter(l => l.status === 'completed' || !l.status);
+      const [filter, setFilter] = useState('month'); // 'all', 'month', 'year'
 
-      const totalMins = completed.reduce((a,b) => a + (b.durationMinutes||0), 0);
+      // Filter Logic for Breakdown and Totals
+      const now = new Date();
+      const filteredLogs = completed.filter(l => {
+         const d = new Date(l.date.replace(/-/g, '/'));
+         if (filter === 'month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+         if (filter === 'year') return d.getFullYear() === now.getFullYear();
+         return true;
+      });
 
+      // Recalculate Totals based on Filter
+      const totalMins = filteredLogs.reduce((a,b) => a + (b.durationMinutes||0), 0);
+      const totalCount = filteredLogs.length;
+
+      // Last 7 days (Keep as is, showing recent activity regardless of filter)
       const last7 = Array.from({length:7}).map((_,i) => {
         const d = new Date(); 
         d.setDate(d.getDate() - (6-i));
         const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        // Note: We use 'completed' here (all time) for the trend chart, or should it respect filter?
+        // UX: Typically "Recent Trend" is "Recent", so it shouldn't be affected by "Month/Year" filter which applies to aggregates.
         const mins = completed.filter(l=>l.date === dateStr).reduce((a,b)=>a+(b.durationMinutes||0),0);
         return { day: d.getDate(), mins, isToday: i===6 };
       });
       const maxWeekly = Math.max(...last7.map(d=>d.mins), 60);
 
+      // Breakdown based on Filtered Logs
       const breakdown = CATEGORIES.map(cat => {
-        const catLogs = completed.filter(l => l.category === cat.value);
+        const catLogs = filteredLogs.filter(l => l.category === cat.value);
         const totalMinutes = catLogs.reduce((a,b)=>a+(b.durationMinutes||0), 0);
         return { ...cat, totalMinutes, count: catLogs.length, hours: (totalMinutes/60).toFixed(1) };
       }).filter(c => c.totalMinutes > 0).sort((a,b) => b.totalMinutes - a.totalMinutes);
@@ -403,21 +411,37 @@
       // 找出最大值，用於計算進度條的「相對比例」 (最大值為 100% 寬度)
       const maxCatMinutes = breakdown.length > 0 ? breakdown[0].totalMinutes : 0;
 
+      const FilterBtn = ({ val, label }) => (
+          <button 
+            onClick={() => setFilter(val)}
+            className={`flex-1 py-2 text-[10px] font-bold rounded-xl transition-all ${filter === val ? 'bg-slate-800 text-white shadow-md' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
+          >
+            {label}
+          </button>
+      );
+
       return (
-        <div className="p-6 space-y-8 animate-slide-up pb-24">
+        <div className="p-6 space-y-6 animate-slide-up pb-24">
+          
+          <div className="flex bg-slate-50 p-1 rounded-2xl">
+             <FilterBtn val="month" label="本月" />
+             <FilterBtn val="year" label="本年" />
+             <FilterBtn val="all" label="全部" />
+          </div>
+
           <section className="grid grid-cols-2 gap-3">
              <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm">
-                <div className="text-[10px] font-black text-slate-400 uppercase">總時數</div>
+                <div className="text-[10px] font-black text-slate-400 uppercase">總時數 ({filter==='all'?'全部':filter==='month'?'本月':'本年'})</div>
                 <div className="text-2xl font-black text-slate-800 mt-1">{(totalMins/60).toFixed(1)}<span className="text-xs text-slate-400 ml-1">hr</span></div>
              </div>
              <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm">
                 <div className="text-[10px] font-black text-slate-400 uppercase">完成次數</div>
-                <div className="text-2xl font-black text-slate-800 mt-1">{completed.length}<span className="text-xs text-slate-400 ml-1">次</span></div>
+                <div className="text-2xl font-black text-slate-800 mt-1">{totalCount}<span className="text-xs text-slate-400 ml-1">次</span></div>
              </div>
           </section>
 
           <section>
-            <h3 className="text-sm font-black text-slate-800 mb-4 uppercase tracking-widest">過去 7 天趨勢 (已完成)</h3>
+            <h3 className="text-sm font-black text-slate-800 mb-4 uppercase tracking-widest">過去 7 天趨勢</h3>
             <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 h-48 flex items-end justify-between gap-2">
                {last7.map((d,i) => (
                  <div key={i} className="flex-1 flex flex-col items-center gap-1 h-full justify-end group">
@@ -428,14 +452,12 @@
             </div>
           </section>
 
-          {breakdown.length > 0 && (
-             <section>
+          <section>
                <h3 className="text-sm font-black text-slate-800 mb-4 uppercase tracking-widest">項目分佈</h3>
-               <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4">
+               {breakdown.length > 0 ? (
+                <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4">
                  {breakdown.map((item) => {
-                   // 計算佔總時間的百分比 (用於顯示)
                    const percentage = totalMins > 0 ? Math.round((item.totalMinutes / totalMins) * 100) : 0;
-                   // 計算進度條寬度 (相對於最大值的比例，讓第一名總是接近滿的)
                    const barWidth = maxCatMinutes > 0 ? (item.totalMinutes / maxCatMinutes) * 100 : 0;
 
                    return (
@@ -456,8 +478,10 @@
                    );
                  })}
                </div>
-             </section>
-          )}
+               ) : (
+                   <div className="text-center py-8 text-slate-400 text-xs">此時段無運動紀錄</div>
+               )}
+          </section>
         </div>
       );
     }
@@ -565,7 +589,7 @@
       )
     }
 
-    const Form = ({ onSave, onCancel, onDelete, initData }) => {
+    const Form = ({ onSave, onCancel, onDelete, initData, logs }) => {
       const [data, setData] = useState(() => {
         const defaults = { 
             category: 'Gym', 
@@ -592,6 +616,23 @@
 
       const [friendInput, setFriendInput] = useState('');
 
+      // Derived Frequent Friends
+      const recentFriends = React.useMemo(() => {
+        if(!logs) return [];
+        const friendCounts = {};
+        logs.forEach(l => {
+           if(l.friends) {
+               l.friends.forEach(f => {
+                   friendCounts[f] = (friendCounts[f] || 0) + 1;
+               });
+           }
+        });
+        return Object.entries(friendCounts)
+                     .sort((a,b) => b[1] - a[1]) // Sort by frequency
+                     .map(([name]) => name)
+                     .slice(0, 8); // Top 8
+      }, [logs]);
+
       useEffect(() => {
         if (!initData) { 
             if (isFutureDate(data.date)) {
@@ -608,6 +649,14 @@
       }, [data.startTime, data.endTime]);
 
       const isPlanned = data.status === 'planned';
+
+      const addFriend = (name) => {
+          const v = name.trim();
+          if(v && !data.friends.includes(v)) {
+              setData({...data, friends:[...data.friends,v]});
+          }
+          setFriendInput('');
+      };
 
       return (
         <div className="p-6 animate-slide-up pb-24 space-y-6">
@@ -709,9 +758,32 @@
 
                 <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
                     <label className="text-[10px] font-black text-slate-400 uppercase">同行夥伴</label>
+                    
+                    {/* Frequent Friends Suggestions */}
+                    {recentFriends.length > 0 && (
+                        <div className="mb-3">
+                            <p className="text-[9px] text-slate-400 font-bold mb-2">常用好友</p>
+                            <div className="flex flex-wrap gap-2">
+                                {recentFriends.map(f => {
+                                    const isAdded = data.friends.includes(f);
+                                    if(isAdded) return null; // Don't show if already added
+                                    return (
+                                        <button 
+                                            key={f}
+                                            onClick={() => addFriend(f)}
+                                            className="px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-xs font-bold text-slate-600 border border-slate-100 active:scale-95 transition-all"
+                                        >
+                                            + {f}
+                                        </button>
+                                    )
+                                })}
+                            </div>
+                        </div>
+                    )}
+
                     <div className="flex gap-2 mt-2">
-                    <input type="text" value={friendInput} onChange={e=>setFriendInput(e.target.value)} placeholder="輸入名字..." className="flex-1 p-3 bg-slate-50 rounded-xl text-sm text-slate-900 font-bold" />
-                    <button onClick={()=>{const v=friendInput.trim(); if(v&&!data.friends.includes(v)) setData({...data, friends:[...data.friends,v]}); setFriendInput('');}} className="bg-slate-900 text-white px-4 rounded-xl font-bold shadow-lg">+</button>
+                        <input type="text" value={friendInput} onChange={e=>setFriendInput(e.target.value)} placeholder="輸入名字..." className="flex-1 p-3 bg-slate-50 rounded-xl text-sm text-slate-900 font-bold" />
+                        <button onClick={() => addFriend(friendInput)} className="bg-slate-900 text-white px-4 rounded-xl font-bold shadow-lg">+</button>
                     </div>
                     <div className="flex flex-wrap gap-2 mt-3">{data.friends.map(f=><span key={f} onClick={()=>setData({...data, friends:data.friends.filter(x=>x!==f)})} className="bg-blue-600 text-white px-2 py-1 rounded-lg text-xs font-bold cursor-pointer shadow-md shadow-blue-200">{f} ✕</span>)}</div>
                 </div>
@@ -1070,7 +1142,7 @@
           {view === 'trends' && <Trends logs={logs} />}
           {view === 'calendar' && <Calendar logs={logs} onEdit={(l)=>{setEditLog(l); setView('add');}} />}
           {view === 'friends' && <FriendsView logs={logs} />}
-          {view === 'add' && <Form onSave={handleSave} onCancel={()=>{setEditLog(null); setView('dashboard');}} onDelete={handleDelete} initData={editLog} />}
+          {view === 'add' && <Form onSave={handleSave} onCancel={()=>{setEditLog(null); setView('dashboard');}} onDelete={handleDelete} initData={editLog} logs={logs} />}
           {view === 'settings' && <Settings user={user} handleAuth={handleAuth} setView={setView} />}
         </Layout>
       );
