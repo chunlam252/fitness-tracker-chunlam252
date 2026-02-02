@@ -1069,7 +1069,7 @@
             // New separate logic for Today's Logs
             const todaysLogs = currentLogs.filter(l => l.date === todayStr);
             const todaysPlanStr = todaysLogs.length > 0 
-                ? todaysLogs.map(l => `- ${l.status==='completed'?'✅ 已完成':'📅 計劃中'}: ${l.subcategory} (${l.durationMinutes}min)`).join('\n')
+                ? todaysLogs.map(l => `- ${l.status==='completed'?'✅ 已完成':'📅 計劃中'} [${l.category}]: ${l.subcategory} (${l.durationMinutes}min)`).join('\n')
                 : "暫無特定計劃";
 
             // 7 Days History (Strictly LESS than today)
@@ -1077,14 +1077,14 @@
               .filter(l => (l.status === 'completed' || !l.status) && l.date < todayStr) 
               .sort((a,b) => new Date(b.date) - new Date(a.date))
               .slice(0, 7)
-              .map(l => `- ${l.date}: ${l.subcategory} (${l.durationMinutes}min) [RPE:${l.effort||'N/A'}]`);
+              .map(l => `- ${l.date} [${l.category}]: ${l.subcategory} (${l.durationMinutes}min) [RPE:${l.effort||'N/A'}]`);
 
             // 7 Days Future (Strictly GREATER than today)
             const futurePlans = currentLogs
               .filter(l => l.status === 'planned' && l.date > todayStr)
               .sort((a,b) => new Date(a.date) - new Date(b.date))
               .slice(0, 7) 
-              .map(l => `- ${l.date}: ${l.subcategory} (${l.startTime}-${l.endTime})`);
+              .map(l => `- ${l.date} [${l.category}]: ${l.subcategory} (${l.startTime}-${l.endTime})`);
 
             const prompt = `
               Role: Professional Personal Trainer.
@@ -1107,6 +1107,8 @@
               
               Part 1: Today's Action (Status Check)
               - FIRST, check [Today's Schedule].
+              - Pay close attention to the [Category] tag (e.g. [羽毛球], [Gym], [排球]).
+              - DO NOT guess the sport based solely on subcategories like 'Street Court' (街場) or 'Friendly' (友誼賽) as they can apply to multiple sports (Badminton, Volleyball, Basketball, etc.). Trust the [Category] tag provided.
               - If there is ALREADY a plan (Planned or Completed), focus on that! Give a specific tip for that exercise. DO NOT tell me to rest if I have a plan, unless I am severely overtraining.
               - If no plan, THEN suggest Rest or Workout based on history.
               - Keep it short (1-2 sentences).
