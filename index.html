@@ -133,107 +133,33 @@
       } catch (e) { console.error("Firebase init error:", e); return null; }
     };
 
-    // --- AI COMPONENT ---
-    const SmartCoach = ({ logs }) => {
-      const [advice, setAdvice] = useState(null);
-      const [loading, setLoading] = useState(false);
-      const hasFetched = useRef(false);
-
-      useEffect(() => {
-        if (hasFetched.current) return;
-        if (logs.length === 0) {
-           setAdvice("還沒有足夠的數據，請先記錄幾次運動！💪");
-           return;
-        }
-        
-        const fetchAdvice = async () => {
-          setLoading(true);
-          try {
-            // Prepare Data for AI
-            const today = new Date();
-            today.setHours(0,0,0,0);
-            
-            // Include data with NO status (old data) as completed
-            const history = logs
-              .filter(l => l.status === 'completed' || !l.status) 
-              .sort((a,b) => new Date(b.date) - new Date(a.date))
-              .slice(0, 7)
-              .map(l => `- ${l.date}: ${l.subcategory} (${l.durationMinutes}min) [RPE:${l.effort||'N/A'}/10]`);
-
-            const futurePlans = logs
-              .filter(l => l.status === 'planned' && new Date(l.date) >= today)
-              .sort((a,b) => new Date(a.date) - new Date(b.date))
-              .slice(0, 3) 
-              .map(l => `- ${l.date}: ${l.subcategory} (${l.startTime}-${l.endTime})`);
-
-            if (history.length === 0 && futurePlans.length === 0) {
-                setAdvice("歡迎使用 FitTrack！試著新增第一筆運動紀錄吧！✨");
-                setLoading(false);
-                return;
-            }
-
-            const prompt = `
-              Role: Professional Personal Trainer.
-              User's Current Date: ${getLocalTodayString()}
-
-              [Past 7 Days History (Completed)]:
-              ${history.join('\n') || "No recent history."}
-              
-              [Upcoming Plans (Future)]:
-              ${futurePlans.join('\n') || "No future plans."}
-              
-              Task: Analyze the user's fatigue and schedule. Provide a specific, short recommendation for TODAY.
-              Guidelines:
-              1. If they have a hard workout planned tomorrow, suggest recovery today.
-              2. If they exercised heavily yesterday, check if they need rest.
-              3. If no plans and no recent activity, encourage them to move.
-              4. Language: Traditional Chinese (Hong Kong colloquial style).
-              5. Keep it under 50 words. Use emojis.
-            `;
-
-            const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-            
-            const response = await ai.models.generateContent({
-              model: "gemini-3-flash-preview", 
-              contents: prompt,
-            });
-            
-            if (response.text) {
-              setAdvice(response.text);
-            } else {
-              setAdvice("AI 正在思考中...");
-            }
-
-          } catch (error) {
-            console.error("AI Error:", error);
-            setAdvice("教練暫時斷線了，請稍後再試 (可能需要檢查網絡) 😵‍💫");
-          } finally {
-            setLoading(false);
-            hasFetched.current = true;
-          }
-        };
-
-        fetchAdvice();
-      }, [logs]); 
-
+    // --- AI COMPONENT (Pure UI) ---
+    const SmartCoach = ({ advice, loading, onRefresh }) => {
       return (
         <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-[2rem] p-5 text-white shadow-lg shadow-indigo-200 mb-6 relative overflow-hidden">
           <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
+          
           <div className="flex items-start gap-4 relative z-10">
             <div className="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center text-2xl shrink-0 backdrop-blur-sm border border-white/10">
               🤖
             </div>
             <div className="flex-1 min-h-[3rem] flex flex-col justify-center">
-              <div className="text-[10px] font-bold text-indigo-100 uppercase tracking-widest mb-1 flex items-center gap-1">
-                AI 智能教練 <span className="bg-white/20 px-1.5 rounded text-[8px]">GEMINI</span>
+              <div className="flex justify-between items-start">
+                  <div className="text-[10px] font-bold text-indigo-100 uppercase tracking-widest mb-1 flex items-center gap-1">
+                    AI 智能教練 <span className="bg-white/20 px-1.5 rounded text-[8px]">GEMINI</span>
+                  </div>
+                  <button onClick={onRefresh} disabled={loading} className="text-white/70 hover:text-white transition-colors disabled:opacity-50">
+                     <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                  </button>
               </div>
+              
               {loading ? (
                 <div className="space-y-2 animate-pulse mt-1">
                   <div className="h-3 bg-white/20 rounded-full w-3/4"></div>
                   <div className="h-3 bg-white/20 rounded-full w-1/2"></div>
                 </div>
               ) : (
-                <p className="text-sm font-medium leading-relaxed tracking-wide">{advice}</p>
+                <p className="text-sm font-medium leading-relaxed tracking-wide whitespace-pre-wrap">{advice}</p>
               )}
             </div>
           </div>
@@ -295,7 +221,7 @@
       );
     };
 
-    const Dashboard = ({ logs, onEdit, setView }) => {
+    const Dashboard = ({ logs, onEdit, setView, aiAdvice, aiLoading, onRefreshAi }) => {
       // 1. Stats: COMPLETED or OLD DATA (undefined status)
       const completedLogs = logs.filter(l => l.status === 'completed' || !l.status);
       
@@ -327,7 +253,7 @@
 
       return (
         <div className="p-6 space-y-6 animate-slide-up pb-24">
-          <SmartCoach logs={logs} />
+          <SmartCoach advice={aiAdvice} loading={aiLoading} onRefresh={onRefreshAi} />
 
           <div className="grid grid-cols-2 gap-4">
              <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between h-28">
@@ -376,6 +302,12 @@
                         {l.startTime && <span>• {l.startTime} - {l.endTime}</span>}
                         {l.durationMinutes && !l.startTime && <span>• {l.durationMinutes} min</span>}
                         {!isPlanned && <span>• {l.mood || 'N/A'}</span>}
+                        {!isPlanned && (l.effort || l.performance) && (
+                            <span className="flex items-center gap-1">
+                                {l.effort && <span>• 強度 {l.effort}</span>}
+                                {l.performance && <span>• 表現 {l.performance}</span>}
+                            </span>
+                        )}
                       </div>
                     </div>
                     {isPlanned && (
@@ -563,7 +495,12 @@
                     </div>
                     <div className="text-[10px] text-slate-400 mt-1">
                         {l.startTime ? `${l.startTime} - ${l.endTime}` : `${l.durationMinutes} min`}
-                        {(l.status === 'completed' || !l.status) && ` • 強度 ${l.effort||'-'}`}
+                        {(l.status === 'completed' || !l.status) && (
+                            <span className="flex items-center gap-1">
+                                {l.effort && <span>• 強度 {l.effort}</span>}
+                                {l.performance && <span>• 表現 {l.performance}</span>}
+                            </span>
+                        )}
                     </div>
                  </div>
                </div>
@@ -681,15 +618,29 @@
              <div className="space-y-6 animate-fade-in">
                 <div className="bg-white p-5 rounded-3xl space-y-4 border border-slate-100 shadow-sm">
                     <div>
-                    <div className="flex justify-between mb-1">
-                        <label className="text-[10px] font-black text-slate-400 uppercase">自覺強度 (RPE)</label>
-                        <span className="text-xs font-bold text-slate-600">{data.effort} / 10</span>
+                        <div className="flex justify-between mb-1">
+                            <label className="text-[10px] font-black text-slate-400 uppercase">自覺強度 (RPE)</label>
+                            <span className="text-xs font-bold text-slate-600">{data.effort} / 10</span>
+                        </div>
+                        <input type="range" min="1" max="10" value={data.effort} onChange={e=>setData({...data, effort:Number(e.target.value)})} className="w-full h-8 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
+                        <div className="flex justify-between text-[8px] text-slate-400 font-bold px-1">
+                            <span>輕鬆</span>
+                            <span>極限</span>
+                        </div>
                     </div>
-                    <input type="range" min="1" max="10" value={data.effort} onChange={e=>setData({...data, effort:Number(e.target.value)})} className="w-full h-8 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
-                    <div className="flex justify-between text-[8px] text-slate-400 font-bold px-1">
-                        <span>輕鬆</span>
-                        <span>極限</span>
-                    </div>
+                    
+                    <div className="h-px bg-slate-100"></div>
+
+                    <div>
+                        <div className="flex justify-between mb-1">
+                            <label className="text-[10px] font-black text-slate-400 uppercase">運動表現</label>
+                            <span className="text-xs font-bold text-slate-600">{data.performance || 5} / 10</span>
+                        </div>
+                        <input type="range" min="1" max="10" value={data.performance || 5} onChange={e=>setData({...data, performance:Number(e.target.value)})} className="w-full h-8 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-green-500" />
+                        <div className="flex justify-between text-[8px] text-slate-400 font-bold px-1">
+                            <span>未如理想</span>
+                            <span>超水準</span>
+                        </div>
                     </div>
                 </div>
 
@@ -890,6 +841,10 @@
       const [editLog, setEditLog] = useState(null);
       const [user, setUser] = useState(null);
       const [status, setStatus] = useState('初始化...');
+      
+      // New AI State in App level (Persistence)
+      const [aiAdvice, setAiAdvice] = useState(null);
+      const [aiLoading, setAiLoading] = useState(false);
 
       useEffect(() => {
         const fb = initFirebase();
@@ -898,7 +853,6 @@
             return;
         }
         
-        // Remove redirect logic, stick to popup flow only for simplicity across devices
         getRedirectResult(fb.auth).then(res => {
           if(res) console.log('Redirect Success');
         }).catch(console.error);
@@ -928,6 +882,79 @@
         });
         return () => unsub();
       }, []);
+
+      // AI Logic Function
+      const generateAiAdvice = async (currentLogs) => {
+        if (!currentLogs || currentLogs.length === 0) {
+            setAiAdvice("還沒有足夠的數據，請先記錄幾次運動！💪");
+            return;
+        }
+        setAiLoading(true);
+        try {
+            const today = new Date();
+            today.setHours(0,0,0,0);
+            
+            // 7 Days History
+            const history = currentLogs
+              .filter(l => l.status === 'completed' || !l.status) 
+              .sort((a,b) => new Date(b.date) - new Date(a.date))
+              .slice(0, 7)
+              .map(l => `- ${l.date}: ${l.subcategory} (${l.durationMinutes}min) [RPE:${l.effort||'N/A'}]`);
+
+            // 7 Days Future (Increased from 3)
+            const futurePlans = currentLogs
+              .filter(l => l.status === 'planned' && new Date(l.date) >= today)
+              .sort((a,b) => new Date(a.date) - new Date(b.date))
+              .slice(0, 7) 
+              .map(l => `- ${l.date}: ${l.subcategory} (${l.startTime}-${l.endTime})`);
+
+            const prompt = `
+              Role: Professional Personal Trainer.
+              User's Current Date: ${getLocalTodayString()}
+
+              [Past 7 Days History (Completed)]:
+              ${history.join('\n') || "No recent history."}
+              
+              [Next 7 Days Plans (Future)]:
+              ${futurePlans.join('\n') || "No future plans."}
+              
+              Task: Provide a 2-part analysis in Traditional Chinese (HK style).
+              
+              Part 1: Today's Action (Status Check)
+              - Based on yesterday's intensity and tomorrow's plans, should I rest or workout today?
+              - Keep it short (1-2 sentences).
+              
+              Part 2: Weekly Gap Analysis
+              - Look at the Next 7 Days Plans.
+              - Identify days with NO plans or LONG gaps.
+              - Suggest specific low-intensity activities or workouts to fill those gaps to maintain consistency without overtraining.
+              
+              Format: Use clear headings or bullet points. Use emojis.
+            `;
+
+            const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+            const response = await ai.models.generateContent({
+              model: "gemini-3-flash-preview", 
+              contents: prompt,
+            });
+            
+            if (response.text) {
+              setAiAdvice(response.text);
+            }
+        } catch (error) {
+            console.error("AI Error:", error);
+            setAiAdvice("教練暫時斷線了，請稍後再試 😵‍💫");
+        } finally {
+            setAiLoading(false);
+        }
+      };
+
+      // Initial AI Trigger (Only runs once if advice is empty and we have logs)
+      useEffect(() => {
+          if (logs.length > 0 && !aiAdvice && !aiLoading) {
+              generateAiAdvice(logs);
+          }
+      }, [logs]); // Depend on logs so it triggers on first load, but check !aiAdvice to prevent loop
 
       const updateLogs = async (newLogs) => {
         setLogs(newLogs);
@@ -961,14 +988,12 @@
             await signOut(fb.auth);
         } else {
            try {
-               // Force POPUP everywhere. It handles mobile correctly now in modern browsers
-               // and avoids the redirect data loss issues.
                const provider = new GoogleAuthProvider();
                await signInWithPopup(fb.auth, provider);
            } catch(e) {
                console.error("Login Error", e);
                if(e.code === 'auth/unauthorized-domain') {
-                   alert("登入失敗：目前的網域 (或IP) 未在 Firebase Console 授權。\n請使用 'localhost' 或新增此網域。");
+                   alert("登入失敗：目前的網域 (或IP) 未在 Firebase Console 授權。");
                } else {
                    alert("登入錯誤: " + e.message);
                }
@@ -978,7 +1003,16 @@
 
       return (
         <Layout activeView={view} setView={setView} user={user} status={status} onAuth={handleAuth}>
-          {view === 'dashboard' && <Dashboard logs={logs} setView={setView} onEdit={(l)=>{setEditLog(l); setView('add');}} />}
+          {view === 'dashboard' && (
+             <Dashboard 
+                logs={logs} 
+                setView={setView} 
+                onEdit={(l)=>{setEditLog(l); setView('add');}} 
+                aiAdvice={aiAdvice}
+                aiLoading={aiLoading}
+                onRefreshAi={() => generateAiAdvice(logs)}
+             />
+          )}
           {view === 'trends' && <Trends logs={logs} />}
           {view === 'calendar' && <Calendar logs={logs} onEdit={(l)=>{setEditLog(l); setView('add');}} />}
           {view === 'friends' && <FriendsView logs={logs} />}
