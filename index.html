@@ -1078,17 +1078,38 @@
             `;
 
             const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-            const response = await ai.models.generateContent({
-              model: "gemini-1.5-flash", 
-              contents: prompt,
-            });
             
-            if (response.text) {
-              setAiAdvice(response.text);
+            let adviceText = "";
+            
+            try {
+              // Try the Experimental (2.0) Model first as requested
+              const response = await ai.models.generateContent({
+                model: "gemini-2.0-flash-exp", 
+                contents: prompt,
+              });
+              adviceText = response.text;
+            } catch (e) {
+              console.warn("2.0 Flash failed, retrying with Stable Flash...", e);
+              // Fallback to Stable Flash (1.5)
+              try {
+                  const response = await ai.models.generateContent({
+                    model: "gemini-flash-latest", 
+                    contents: prompt,
+                  });
+                  adviceText = response.text;
+              } catch (e2) {
+                  console.error("All AI models failed", e2);
+                  setAiAdvice("連線不穩定，請稍後再試 (Model Error)");
+                  return;
+              }
+            }
+            
+            if (adviceText) {
+              setAiAdvice(adviceText);
               // 2. Save Cache
               localStorage.setItem(AI_CACHE_KEY, JSON.stringify({
                   date: todayStr,
-                  advice: response.text
+                  advice: adviceText
               }));
             }
         } catch (error) {
