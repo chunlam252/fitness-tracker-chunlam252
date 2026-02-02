@@ -1066,19 +1066,22 @@
         }
         setAiLoading(true);
         try {
-            const today = new Date();
-            today.setHours(0,0,0,0);
-            
-            // 7 Days History
+            // New separate logic for Today's Logs
+            const todaysLogs = currentLogs.filter(l => l.date === todayStr);
+            const todaysPlanStr = todaysLogs.length > 0 
+                ? todaysLogs.map(l => `- ${l.status==='completed'?'✅ 已完成':'📅 計劃中'}: ${l.subcategory} (${l.durationMinutes}min)`).join('\n')
+                : "暫無特定計劃";
+
+            // 7 Days History (Strictly LESS than today)
             const history = currentLogs
-              .filter(l => l.status === 'completed' || !l.status) 
+              .filter(l => (l.status === 'completed' || !l.status) && l.date < todayStr) 
               .sort((a,b) => new Date(b.date) - new Date(a.date))
               .slice(0, 7)
               .map(l => `- ${l.date}: ${l.subcategory} (${l.durationMinutes}min) [RPE:${l.effort||'N/A'}]`);
 
-            // 7 Days Future (Increased from 3)
+            // 7 Days Future (Strictly GREATER than today)
             const futurePlans = currentLogs
-              .filter(l => l.status === 'planned' && new Date(l.date) >= today)
+              .filter(l => l.status === 'planned' && l.date > todayStr)
               .sort((a,b) => new Date(a.date) - new Date(b.date))
               .slice(0, 7) 
               .map(l => `- ${l.date}: ${l.subcategory} (${l.startTime}-${l.endTime})`);
@@ -1086,6 +1089,9 @@
             const prompt = `
               Role: Professional Personal Trainer.
               User's Current Date: ${todayStr}
+
+              [Today's Schedule (${todayStr})]:
+              ${todaysPlanStr}
 
               [Past 7 Days History (Completed)]:
               ${history.join('\n') || "No recent history."}
@@ -1100,7 +1106,9 @@
               2. You MUST start the second section with exactly: "Part 2: Weekly Gap Analysis"
               
               Part 1: Today's Action (Status Check)
-              - Based on yesterday's intensity and tomorrow's plans, should I rest or workout today?
+              - FIRST, check [Today's Schedule].
+              - If there is ALREADY a plan (Planned or Completed), focus on that! Give a specific tip for that exercise. DO NOT tell me to rest if I have a plan, unless I am severely overtraining.
+              - If no plan, THEN suggest Rest or Workout based on history.
               - Keep it short (1-2 sentences).
               
               Part 2: Weekly Gap Analysis
