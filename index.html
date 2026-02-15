@@ -633,7 +633,9 @@
             effort: 5, 
             performance: 7, 
             mood: '😊', 
-            friends: [] 
+            friends: [],
+            notes: '',
+            improvement: ''
         };
         
         if (!initData) return defaults;
@@ -817,6 +819,28 @@
                         <button onClick={() => addFriend(friendInput)} className="bg-slate-900 text-white px-4 rounded-xl font-bold shadow-lg">+</button>
                     </div>
                     <div className="flex flex-wrap gap-2 mt-3">{data.friends.map(f=><span key={f} onClick={()=>setData({...data, friends:data.friends.filter(x=>x!==f)})} className="bg-blue-600 text-white px-2 py-1 rounded-lg text-xs font-bold cursor-pointer shadow-md shadow-blue-200">{f} ✕</span>)}</div>
+                </div>
+
+                {/* New: Notes and Improvements */}
+                <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm space-y-4">
+                    <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">重點備忘 (Notes)</label>
+                        <textarea 
+                            value={data.notes} 
+                            onChange={e=>setData({...data, notes:e.target.value})} 
+                            placeholder="e.g. 試了新球拍，感覺手感不錯..." 
+                            className="w-full p-3 bg-slate-50 rounded-xl text-sm text-slate-900 font-medium resize-none h-20 placeholder-slate-300"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">技術筆記 / 待改善 (Tech Notes)</label>
+                        <textarea 
+                            value={data.improvement} 
+                            onChange={e=>setData({...data, improvement:e.target.value})} 
+                            placeholder="e.g. 殺球落點太淺，深蹲膝蓋內扣..." 
+                            className="w-full p-3 bg-red-50 rounded-xl text-sm text-slate-900 font-medium resize-none h-20 placeholder-red-200 border border-red-100"
+                        />
+                    </div>
                 </div>
              </div>
           )}
@@ -1073,11 +1097,17 @@
                 : "暫無特定計劃";
 
             // 7 Days History (Strictly LESS than today)
+            // Updated to include Notes and Tech Notes
             const history = currentLogs
               .filter(l => (l.status === 'completed' || !l.status) && l.date < todayStr) 
               .sort((a,b) => new Date(b.date) - new Date(a.date))
               .slice(0, 7)
-              .map(l => `- ${l.date} [${l.category}]: ${l.subcategory} (${l.durationMinutes}min) [RPE:${l.effort||'N/A'}]`);
+              .map(l => {
+                  let logStr = `- ${l.date} [${l.category}]: ${l.subcategory} (${l.durationMinutes}min) [RPE:${l.effort||'N/A'}]`;
+                  if (l.notes) logStr += `\n  - Note: ${l.notes}`;
+                  if (l.improvement) logStr += `\n  - Tech Note: ${l.improvement}`;
+                  return logStr;
+              });
 
             // 7 Days Future (Strictly GREATER than today)
             const futurePlans = currentLogs
@@ -1107,16 +1137,16 @@
               
               Part 1: Today's Action (Status Check)
               - FIRST, check [Today's Schedule].
-              - Pay close attention to the [Category] tag (e.g. [羽毛球], [Gym], [排球]).
-              - DO NOT guess the sport based solely on subcategories like 'Street Court' (街場) or 'Friendly' (友誼賽) as they can apply to multiple sports (Badminton, Volleyball, Basketball, etc.). Trust the [Category] tag provided.
-              - If there is ALREADY a plan (Planned or Completed), focus on that! Give a specific tip for that exercise. DO NOT tell me to rest if I have a plan, unless I am severely overtraining.
-              - If no plan, THEN suggest Rest or Workout based on history.
+              - Pay close attention to the [Category] tag (e.g. [羽毛球], [Gym]).
+              - **CRITICAL**: Check if there are any [Tech Note] (技術筆記) from past [Category] history.
+              - If the user has a plan today (e.g., Badminton), and there is a past [Tech Note] for Badminton (e.g., "Backhand weak"), you MUST remind them to focus on correcting that specific issue today.
+              - If there is ALREADY a plan (Planned or Completed), focus on that! Give a specific tip for that exercise.
               - Keep it short (1-2 sentences).
               
               Part 2: Weekly Gap Analysis
               - Look at the Next 7 Days Plans.
               - Identify days with NO plans or LONG gaps.
-              - Suggest specific low-intensity activities or workouts to fill those gaps to maintain consistency without overtraining.
+              - Suggest specific low-intensity activities or workouts to fill those gaps.
               
               Format: Use clear headings or bullet points. Use emojis.
             `;
