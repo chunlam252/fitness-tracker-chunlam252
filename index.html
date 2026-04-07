@@ -1,6 +1,27 @@
 <!DOCTYPE html>
 <html lang="zh-HK">
 <head>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "firebase/app": "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js",
+    "firebase/auth": "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js",
+    "firebase/firestore": "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js",
+    "@google/genai": "https://esm.run/@google/genai",
+    "marked": "https://esm.sh/marked@12.0.0",
+    "react/": "https://esm.sh/react@^19.2.4/"
+  }
+}
+</script>
+  <script type="module">import { injectIntoGlobalHook } from "/@react-refresh";
+injectIntoGlobalHook(window);
+window.$RefreshReg$ = () => {};
+window.$RefreshSig$ = () => (type) => type;</script>
+
+  <script type="module" src="/@vite/client"></script>
+
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>FitTrack 運動日常</title>
@@ -69,21 +90,9 @@
   <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
   
   <!-- Import Map -->
-  <script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@18.2.0",
-    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-    "firebase/app": "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js",
-    "firebase/auth": "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js",
-    "firebase/firestore": "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js",
-    "@google/genai": "https://esm.run/@google/genai",
-    "marked": "https://esm.sh/marked@12.0.0",
-    "react/": "https://esm.sh/react@^19.2.4/"
-  }
-}
-</script>
-</head>
+
+<link rel="stylesheet" href="/index.css">
+<script src="/_aistudio-iframe.js"></script></head>
 <body>
   <div id="root"></div>
 
@@ -149,8 +158,64 @@
     };
 
     // --- AI COMPONENT (Collapsible & Alien Icon) ---
-    const SmartCoach = ({ advice, loading, onRefresh }) => {
+    const SmartCoach = ({ advice, loading, onRefresh, logs }) => {
       const [expanded, setExpanded] = useState(false);
+      const [chatInput, setChatInput] = useState('');
+      const [chatMessages, setChatMessages] = useState([]);
+      const [isChatting, setIsChatting] = useState(false);
+
+      const handleAskAI = async () => {
+          if (!chatInput.trim()) return;
+          
+          const userMsg = chatInput.trim();
+          setChatMessages(prev => [...prev, { role: 'user', text: userMsg }]);
+          setChatInput('');
+          setIsChatting(true);
+          
+          try {
+              const todayStr = getLocalTodayString();
+              const history = (logs || [])
+                .filter(l => (l.status === 'completed' || !l.status) && l.date <= todayStr) 
+                .sort((a,b) => new Date(b.date) - new Date(a.date))
+                .slice(0, 14)
+                .map(l => `- ${l.date} [${l.category}]: ${l.subcategory} (${l.durationMinutes}min)`);
+                
+              const futurePlans = (logs || [])
+                .filter(l => l.status === 'planned' && l.date > todayStr)
+                .sort((a,b) => new Date(a.date) - new Date(b.date))
+                .slice(0, 7) 
+                .map(l => `- ${l.date} [${l.category}]: ${l.subcategory} (${l.startTime}-${l.endTime})`);
+
+              const prompt = `
+                Role: Professional Personal Trainer.
+                User's Current Date: ${todayStr}
+                
+                [Past 14 Days History]:
+                ${history.join('\n') || "No recent history."}
+                
+                [Next 7 Days Plans]:
+                ${futurePlans.join('\n') || "No future plans."}
+                
+                User Question: "${userMsg}"
+                
+                Task: Answer the user's question based on their exercise history and plans. 
+                Respond in Traditional Chinese (HK style). Be concise, encouraging, and professional.
+              `;
+              
+              const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+              const response = await ai.models.generateContent({
+                  model: "gemini-3.1-flash-preview",
+                  contents: prompt,
+              });
+              
+              setChatMessages(prev => [...prev, { role: 'ai', text: response.text }]);
+          } catch (error) {
+              console.error("Chat AI Error:", error);
+              setChatMessages(prev => [...prev, { role: 'ai', text: "抱歉，我暫時無法回答你的問題，請稍後再試。" }]);
+          } finally {
+              setIsChatting(false);
+          }
+      };
 
       // 嚴格分割邏輯
       let part1 = advice || '';
@@ -220,10 +285,53 @@
                     {part2 && (
                         <>
                             {expanded && (
-                                <div 
-                                    className="mt-4 pt-4 border-t border-white/20 animate-slide-up text-sm font-medium leading-relaxed tracking-wide"
-                                    dangerouslySetInnerHTML={renderMarkdown(part2)}
-                                />
+                                <div className="mt-4 pt-4 border-t border-white/20 animate-slide-up">
+                                    <div className="text-sm font-medium leading-relaxed tracking-wide" dangerouslySetInnerHTML={renderMarkdown(part2)} />
+                                    
+                                    {/* Chat Section */}
+                                    <div className="mt-6 bg-white/10 rounded-2xl p-4">
+                                        <h4 className="text-xs font-bold text-indigo-100 uppercase tracking-widest mb-3 flex items-center gap-2">
+                                            💬 隨時發問
+                                        </h4>
+                                        
+                                        <div className="space-y-3 mb-3 max-h-60 overflow-y-auto custom-scrollbar pr-1">
+                                            {chatMessages.map((msg, idx) => (
+                                                <div key={idx} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                                                    <div className={`text-sm px-3 py-2 rounded-2xl max-w-[90%] ${msg.role === 'user' ? 'bg-indigo-500 text-white rounded-br-sm' : 'bg-white/20 text-indigo-50 rounded-bl-sm'}`}>
+                                                        {msg.role === 'ai' ? <div dangerouslySetInnerHTML={renderMarkdown(msg.text)} className="prose prose-sm prose-invert" /> : msg.text}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            {isChatting && (
+                                                <div className="flex items-start">
+                                                    <div className="text-sm px-3 py-2 rounded-2xl bg-white/20 text-indigo-50 rounded-bl-sm flex gap-1 items-center">
+                                                        <span className="w-1.5 h-1.5 bg-white/60 rounded-full animate-bounce"></span>
+                                                        <span className="w-1.5 h-1.5 bg-white/60 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></span>
+                                                        <span className="w-1.5 h-1.5 bg-white/60 rounded-full animate-bounce" style={{animationDelay: '0.4s'}}></span>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                        
+                                        <div className="flex gap-2">
+                                            <input 
+                                                type="text" 
+                                                value={chatInput}
+                                                onChange={e => setChatInput(e.target.value)}
+                                                onKeyDown={e => e.key === 'Enter' && handleAskAI()}
+                                                placeholder="例如：聽日加操腳好唔好？" 
+                                                className="flex-1 bg-white/20 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                                            />
+                                            <button 
+                                                onClick={handleAskAI}
+                                                disabled={isChatting || !chatInput.trim()}
+                                                className="bg-indigo-500 hover:bg-indigo-400 disabled:opacity-50 text-white p-2 rounded-xl transition-colors flex items-center justify-center"
+                                            >
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
                             )}
                             <button 
                                 onClick={() => setExpanded(!expanded)}
@@ -330,7 +438,7 @@
 
       return (
         <div className="p-6 space-y-6 animate-slide-up pb-24">
-          <SmartCoach advice={aiAdvice} loading={aiLoading} onRefresh={onRefreshAi} />
+          <SmartCoach advice={aiAdvice} loading={aiLoading} onRefresh={onRefreshAi} logs={logs} />
 
           <div className="grid grid-cols-2 gap-4">
              <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between h-28">
@@ -648,6 +756,16 @@
       });
 
       const [friendInput, setFriendInput] = useState('');
+      const [showFriendDropdown, setShowFriendDropdown] = useState(false);
+
+      const allFriends = React.useMemo(() => {
+        if(!logs) return [];
+        const friendSet = new Set();
+        logs.forEach(l => {
+           if(l.friends) l.friends.forEach(f => friendSet.add(f));
+        });
+        return Array.from(friendSet).sort();
+      }, [logs]);
 
       // Derived Frequent Friends
       const recentFriends = React.useMemo(() => {
@@ -814,9 +932,46 @@
                         </div>
                     )}
 
-                    <div className="flex gap-2 mt-2">
-                        <input type="text" value={friendInput} onChange={e=>setFriendInput(e.target.value)} placeholder="輸入名字..." className="flex-1 p-3 bg-slate-50 rounded-xl text-sm text-slate-900 font-bold" />
-                        <button onClick={() => addFriend(friendInput)} className="bg-slate-900 text-white px-4 rounded-xl font-bold shadow-lg">+</button>
+                    <div className="relative mt-2">
+                        <div className="flex gap-2">
+                            <input 
+                                type="text" 
+                                value={friendInput} 
+                                onChange={e=>setFriendInput(e.target.value)} 
+                                onFocus={() => setShowFriendDropdown(true)}
+                                onBlur={() => setTimeout(() => setShowFriendDropdown(false), 200)}
+                                placeholder="搜尋或輸入新名字..." 
+                                className="flex-1 p-3 bg-slate-50 rounded-xl text-sm text-slate-900 font-bold focus:ring-2 focus:ring-blue-500 outline-none" 
+                            />
+                            <button onClick={() => addFriend(friendInput)} className="bg-slate-900 text-white px-4 rounded-xl font-bold shadow-lg">+</button>
+                        </div>
+                        
+                        {showFriendDropdown && (
+                            <div className="absolute z-10 w-full mt-1 bg-white border border-slate-100 rounded-xl shadow-xl max-h-48 overflow-y-auto custom-scrollbar">
+                                {allFriends
+                                    .filter(f => f.toLowerCase().includes(friendInput.toLowerCase()) && !data.friends.includes(f))
+                                    .map(f => (
+                                    <div 
+                                        key={f} 
+                                        onClick={() => addFriend(f)}
+                                        className="p-3 hover:bg-slate-50 cursor-pointer text-sm font-bold text-slate-700 border-b border-slate-50 last:border-0"
+                                    >
+                                        {f}
+                                    </div>
+                                ))}
+                                {friendInput && !allFriends.some(f => f.toLowerCase() === friendInput.toLowerCase()) && (
+                                    <div 
+                                        onClick={() => addFriend(friendInput)}
+                                        className="p-3 hover:bg-slate-50 cursor-pointer text-sm font-bold text-blue-600 flex items-center gap-2"
+                                    >
+                                        <span>+ 新增 "{friendInput}"</span>
+                                    </div>
+                                )}
+                                {!friendInput && allFriends.filter(f => !data.friends.includes(f)).length === 0 && (
+                                    <div className="p-3 text-sm text-slate-400 text-center">無其他好友</div>
+                                )}
+                            </div>
+                        )}
                     </div>
                     <div className="flex flex-wrap gap-2 mt-3">{data.friends.map(f=><span key={f} onClick={()=>setData({...data, friends:data.friends.filter(x=>x!==f)})} className="bg-blue-600 text-white px-2 py-1 rounded-lg text-xs font-bold cursor-pointer shadow-md shadow-blue-200">{f} ✕</span>)}</div>
                 </div>
@@ -855,6 +1010,24 @@
     }
 
     const Settings = ({ user, handleAuth, setView }) => {
+       const handleDownload = async () => {
+           try {
+               const res = await fetch(window.location.href);
+               const text = await res.text();
+               const blob = new Blob([text], { type: 'text/html' });
+               const url = URL.createObjectURL(blob);
+               const a = document.createElement('a');
+               a.href = url;
+               a.download = 'index.html';
+               document.body.appendChild(a);
+               a.click();
+               document.body.removeChild(a);
+               URL.revokeObjectURL(url);
+           } catch (e) {
+               alert('下載失敗: ' + e.message);
+           }
+       };
+
        return (
          <div className="p-6 animate-slide-up space-y-6">
            <h2 className="text-2xl font-black text-slate-800">設定</h2>
@@ -871,6 +1044,15 @@
              </button>
            </div>
            
+           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 space-y-4">
+               <h3 className="font-bold text-slate-800">開發者選項</h3>
+               <p className="text-xs text-slate-500">如果無法匯出至 GitHub，你可以直接下載原始碼並手動更新至你的 Repository。</p>
+               <button onClick={handleDownload} className="w-full py-3 rounded-2xl font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors flex items-center justify-center gap-2">
+                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                   下載 index.html
+               </button>
+           </div>
+
            <div className="bg-blue-50 p-4 rounded-2xl text-[10px] text-blue-600 leading-relaxed border border-blue-100">
                <strong>提示：</strong> 若登入失敗，代表目前的網址未在 Firebase Console 授權。
            </div>
@@ -1014,6 +1196,7 @@
 
     const App = () => {
       const [view, setView] = useState('dashboard');
+      const [friendsKey, setFriendsKey] = useState(0);
       const [logs, setLogs] = useState(() => {
         try {
           return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
@@ -1247,7 +1430,12 @@
       };
 
       return (
-        <Layout activeView={view} setView={setView} user={user} status={status} onAuth={handleAuth}>
+        <Layout activeView={view} setView={(v) => {
+          if (v === 'friends' && view === 'friends') {
+            setFriendsKey(k => k + 1);
+          }
+          setView(v);
+        }} user={user} status={status} onAuth={handleAuth}>
           {view === 'dashboard' && (
              <Dashboard 
                 logs={logs} 
@@ -1260,7 +1448,7 @@
           )}
           {view === 'trends' && <Trends logs={logs} />}
           {view === 'calendar' && <Calendar logs={logs} onEdit={(l)=>{setEditLog(l); setView('add');}} />}
-          {view === 'friends' && <FriendsView logs={logs} />}
+          {view === 'friends' && <FriendsView key={friendsKey} logs={logs} />}
           {view === 'add' && <Form onSave={handleSave} onCancel={()=>{setEditLog(null); setView('dashboard');}} onDelete={handleDelete} initData={editLog} logs={logs} />}
           {view === 'settings' && <Settings user={user} handleAuth={handleAuth} setView={setView} />}
         </Layout>
@@ -1270,5 +1458,6 @@
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<App />);
   </script>
+<script type="module" src="/index.tsx"></script>
 </body>
 </html>
