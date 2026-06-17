@@ -358,42 +358,59 @@
 
     // --- MAIN APP COMPONENTS ---
 
-    const Layout = ({ children, activeView, setView, user, status, onAuth }) => (
-      <div className="flex flex-col h-[100dvh] max-w-md mx-auto bg-white shadow-2xl relative overflow-hidden border-x border-slate-100">
-        <header className="px-6 pb-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0 safe-area-pt">
-          <div>
-            <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-              FitTrack
-            </h1>
-            <div className="flex items-center gap-1.5 mt-1">
-              <div className={`w-1.5 h-1.5 rounded-full ${status.includes('連線') || status.includes('同步') ? 'bg-green-500' : (status.includes('錯') ? 'bg-red-500' : 'bg-slate-300')}`}></div>
-              <p className="text-[9px] font-bold text-slate-400">{status}</p>
-            </div>
-          </div>
-          <button onClick={() => setView('settings')} className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 hover:bg-slate-100 transition-colors">
-            {user?.photoURL ? 
-              <img src={user.photoURL} className="w-full h-full rounded-full object-cover border border-slate-200" alt="user" /> : 
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-            }
-          </button>
-        </header>
-        <main className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50 relative">{children}</main>
-        <nav className="shrink-0 bg-white border-t border-slate-100 grid grid-cols-5 items-end pb-6 pt-2 px-2 z-30 safe-area-pb shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.05)]">
-          <NavBtn active={activeView === 'dashboard'} onClick={() => setView('dashboard')} icon="home" label="主頁" />
-          <NavBtn active={activeView === 'trends'} onClick={() => setView('trends')} icon="chart" label="統計" />
-          <div className="flex justify-center -mt-12 relative z-10 pointer-events-none">
-            <button onClick={() => setView('add')} className="pointer-events-auto flex flex-col items-center group active:scale-95 transition-transform">
-              <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center text-white shadow-xl shadow-blue-200 border-[6px] border-white ring-1 ring-slate-100">
-                <span className="text-2xl">+</span>
+    const Layout = ({ children, activeView, setView, user, status, onAuth }) => {
+      const [showPlusMenu, setShowPlusMenu] = React.useState(false);
+      return (
+        <div className="flex flex-col h-[100dvh] max-w-md mx-auto bg-white shadow-2xl relative overflow-hidden border-x border-slate-100">
+          <header className="px-6 pb-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0 safe-area-pt">
+            <div>
+              <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+                FitTrack
+              </h1>
+              <div className="flex items-center gap-1.5 mt-1">
+                <div className={`w-1.5 h-1.5 rounded-full ${status.includes('連線') || status.includes('同步') ? 'bg-green-500' : (status.includes('錯') ? 'bg-red-500' : 'bg-slate-300')}`}></div>
+                <p className="text-[9px] font-bold text-slate-400">{status}</p>
               </div>
-              <span className="text-[10px] font-bold text-blue-600 mt-1">紀錄</span>
+            </div>
+            <button onClick={() => setView('settings')} className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 hover:bg-slate-100 transition-colors">
+              {user?.photoURL ?
+                <img src={user.photoURL} className="w-full h-full rounded-full object-cover border border-slate-200" alt="user" /> :
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+              }
             </button>
-          </div>
-          <NavBtn active={activeView === 'calendar'} onClick={() => setView('calendar')} icon="calendar" label="日曆" />
-          <NavBtn active={activeView === 'friends'} onClick={() => setView('friends')} icon="users" label="好友" />
-        </nav>
-      </div>
-    );
+          </header>
+          <main className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50 relative" onClick={()=>showPlusMenu && setShowPlusMenu(false)}>{children}</main>
+          <nav className="shrink-0 bg-white border-t border-slate-100 grid grid-cols-5 items-end pb-6 pt-2 px-2 z-30 safe-area-pb shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.05)] relative">
+            {showPlusMenu && (
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 flex gap-2 z-40">
+                <button onClick={()=>{setShowPlusMenu(false); setView('weekplanner');}}
+                  className="flex flex-col items-center gap-1 bg-white rounded-2xl shadow-xl border px-4 py-3 active:scale-95 transition-all">
+                  <span className="text-2xl">📅</span>
+                  <span className="text-[10px] font-bold text-slate-700 whitespace-nowrap">週計劃</span>
+                </button>
+                <button onClick={()=>{setShowPlusMenu(false); setView('add');}}
+                  className="flex flex-col items-center gap-1 bg-white rounded-2xl shadow-xl border px-4 py-3 active:scale-95 transition-all">
+                  <span className="text-2xl">✍️</span>
+                  <span className="text-[10px] font-bold text-slate-700 whitespace-nowrap">單次紀錄</span>
+                </button>
+              </div>
+            )}
+            <NavBtn active={activeView === 'dashboard'} onClick={() => setView('dashboard')} icon="home" label="主頁" />
+            <NavBtn active={activeView === 'trends'} onClick={() => setView('trends')} icon="chart" label="統計" />
+            <div className="flex justify-center -mt-12 relative z-10 pointer-events-none">
+              <button onClick={() => setShowPlusMenu(p => !p)} className="pointer-events-auto flex flex-col items-center group active:scale-95 transition-transform">
+                <div className={`w-16 h-16 rounded-full flex items-center justify-center text-white shadow-xl border-[6px] border-white ring-1 ring-slate-100 transition-all ${showPlusMenu ? 'bg-slate-700 shadow-slate-200' : 'bg-blue-600 shadow-blue-200'}`}>
+                  <span className="text-2xl" style={{transform: showPlusMenu ? 'rotate(45deg)' : 'none', display:'inline-block', transition:'transform 0.2s'}}>+</span>
+                </div>
+                <span className="text-[10px] font-bold text-blue-600 mt-1">紀錄</span>
+              </button>
+            </div>
+            <NavBtn active={activeView === 'calendar'} onClick={() => setView('calendar')} icon="calendar" label="日曆" />
+            <NavBtn active={activeView === 'friends'} onClick={() => setView('friends')} icon="users" label="好友" />
+          </nav>
+        </div>
+      );
+    };
 
     const NavBtn = ({ active, onClick, icon, label }) => {
       const icons = {
@@ -840,7 +857,7 @@
       )
     }
 
-    const Form = ({ onSave, onCancel, onDelete, initData, logs }) => {
+    const Form = ({ onSave, onCancel, onDelete, onCopy, initData, logs }) => {
       const [data, setData] = useState(() => {
         const defaults = { 
             category: 'Gym', 
@@ -869,6 +886,14 @@
 
       const [friendInput, setFriendInput] = useState('');
       const [showFriendDropdown, setShowFriendDropdown] = useState(false);
+      const [quickDuration, setQuickDuration] = useState(() => {
+        if (initData?.durationMinutes) {
+          return [30,45,60,90,120].includes(initData.durationMinutes) ? initData.durationMinutes : 'custom';
+        }
+        return 60;
+      });
+      const [showCopyModal, setShowCopyModal] = useState(false);
+      const [copyDates, setCopyDates] = useState([]);
 
       const allFriends = React.useMemo(() => {
         if(!logs) return [];
@@ -907,9 +932,22 @@
       }, [data.date]);
 
       useEffect(() => {
-         const mins = calculateDuration(data.startTime, data.endTime);
-         setData(prev => ({ ...prev, durationMinutes: mins }));
-      }, [data.startTime, data.endTime]);
+        if (quickDuration === 'custom') {
+          const mins = calculateDuration(data.startTime, data.endTime);
+          setData(prev => ({ ...prev, durationMinutes: mins }));
+        }
+      }, [data.startTime, data.endTime, quickDuration]);
+
+      useEffect(() => {
+        if (quickDuration !== 'custom' && data.startTime) {
+          const [h, m] = data.startTime.split(':').map(Number);
+          const totalMins = h * 60 + m + quickDuration;
+          const newH = Math.floor(totalMins / 60) % 24;
+          const newM = totalMins % 60;
+          const newEndTime = `${String(newH).padStart(2,'0')}:${String(newM).padStart(2,'0')}`;
+          setData(prev => ({ ...prev, endTime: newEndTime, durationMinutes: quickDuration }));
+        }
+      }, [quickDuration, data.startTime]);
 
       const isPlanned = data.status === 'planned';
 
@@ -943,19 +981,36 @@
                </div>
              </div>
 
-             <div className="grid grid-cols-2 gap-4">
-                <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase">開始時間</label>
-                    <input type="time" value={data.startTime} onChange={e=>setData({...data, startTime:e.target.value})} className="w-full mt-1 p-3 bg-slate-50 rounded-xl font-bold text-slate-900" />
-                </div>
-                <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase">結束時間</label>
-                    <input type="time" value={data.endTime} onChange={e=>setData({...data, endTime:e.target.value})} className="w-full mt-1 p-3 bg-slate-50 rounded-xl font-bold text-slate-900" />
-                </div>
+             <div>
+               <label className="text-[10px] font-black text-slate-400 uppercase">開始時間</label>
+               <input type="time" value={data.startTime} onChange={e=>setData({...data, startTime:e.target.value})} className="w-full mt-1 p-3 bg-slate-50 rounded-xl font-bold text-slate-900" />
              </div>
-             
+
+             <div>
+               <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">時長</label>
+               <div className="flex flex-wrap gap-2">
+                 {[30,45,60,90,120].map(mins => (
+                   <button key={mins} type="button" onClick={()=>setQuickDuration(mins)}
+                     className={`px-3 py-2 rounded-xl text-sm font-bold transition-all ${quickDuration===mins ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                     {mins >= 60 ? `${Math.floor(mins/60)}${mins%60 ? `h${mins%60}m` : 'h'}` : `${mins}m`}
+                   </button>
+                 ))}
+                 <button type="button" onClick={()=>setQuickDuration('custom')}
+                   className={`px-3 py-2 rounded-xl text-sm font-bold transition-all ${quickDuration==='custom' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                   自訂
+                 </button>
+               </div>
+             </div>
+
+             {quickDuration === 'custom' && (
+               <div>
+                 <label className="text-[10px] font-black text-slate-400 uppercase">結束時間</label>
+                 <input type="time" value={data.endTime} onChange={e=>setData({...data, endTime:e.target.value})} className="w-full mt-1 p-3 bg-slate-50 rounded-xl font-bold text-slate-900" />
+               </div>
+             )}
+
              <div className="flex items-center justify-center gap-2 text-xs text-slate-400 font-bold bg-slate-50 py-2 rounded-lg">
-                 <span>⏱️ 自動計算: {Math.floor(data.durationMinutes/60)} 小時 {data.durationMinutes%60} 分鐘</span>
+                 <span>⏱️ {Math.floor(data.durationMinutes/60)} 小時 {data.durationMinutes%60} 分鐘</span>
              </div>
           </div>
 
@@ -1116,10 +1171,195 @@
               {isPlanned ? '📅 儲存計劃' : '✅ 完成打卡'}
           </button>
           
-          {initData && <button onClick={()=>onDelete(initData.id)} className="w-full text-red-400 font-bold text-sm py-2">刪除此項目</button>}
+          {initData && (
+            <div className="flex gap-3">
+              <button onClick={()=>setShowCopyModal(true)} className="flex-1 text-blue-500 font-bold text-sm py-2 bg-blue-50 rounded-2xl">📋 複製到其他日期</button>
+              <button onClick={()=>onDelete(initData.id)} className="flex-1 text-red-400 font-bold text-sm py-2 bg-red-50 rounded-2xl">刪除此項目</button>
+            </div>
+          )}
+
+          {showCopyModal && (
+            <div className="fixed inset-0 bg-black/50 z-50 flex items-end" onClick={()=>setShowCopyModal(false)}>
+              <div className="bg-white w-full rounded-t-3xl p-6 pb-10 max-h-[70vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-black">複製到其他日期</h3>
+                  <button onClick={()=>setShowCopyModal(false)} className="w-8 h-8 flex items-center justify-center bg-slate-100 rounded-full">✕</button>
+                </div>
+                <p className="text-xs text-slate-400 font-bold mb-4">選擇日期（可多選），系統會幫你複製同一個訓練項目</p>
+                <div className="grid grid-cols-7 gap-1 mb-6">
+                  {Array.from({length:14}, (_,i) => {
+                    const d = new Date();
+                    d.setDate(d.getDate() + i + 1);
+                    const ds = d.toISOString().slice(0,10);
+                    const dayNames = ['日','一','二','三','四','五','六'];
+                    const isSelected = copyDates.includes(ds);
+                    const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                    return (
+                      <button key={ds} type="button"
+                        onClick={()=>setCopyDates(prev => prev.includes(ds) ? prev.filter(x=>x!==ds) : [...prev, ds])}
+                        className={`flex flex-col items-center p-2 rounded-xl transition-all ${isSelected ? 'bg-blue-600 text-white' : isWeekend ? 'bg-blue-50 text-blue-700' : 'bg-slate-50 text-slate-700'}`}>
+                        <span className="text-[9px] font-bold">{dayNames[d.getDay()]}</span>
+                        <span className="text-sm font-black">{d.getDate()}</span>
+                        <span className="text-[9px]">{d.getMonth()+1}/{d.getDate()}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <button
+                  disabled={copyDates.length === 0}
+                  onClick={()=>{
+                    if(onCopy) onCopy(data, copyDates);
+                    setShowCopyModal(false);
+                    setCopyDates([]);
+                  }}
+                  className={`w-full py-4 rounded-2xl font-black text-white transition-all ${copyDates.length > 0 ? 'bg-blue-600' : 'bg-slate-200 text-slate-400'}`}>
+                  複製到 {copyDates.length} 個日期
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )
     }
+
+    const WeekPlanner = ({ onBatchSave, onCancel }) => {
+      const [category, setCategory] = useState('Gym');
+      const [subcategory, setSubcategory] = useState('重量訓練');
+      const [startTime, setStartTime] = useState('18:00');
+      const [quickDuration, setQuickDuration] = useState(60);
+      const [selectedDates, setSelectedDates] = useState([]);
+      const [dayTimes, setDayTimes] = useState({});
+
+      const catObj = CATEGORIES.find(c => c.value === category) || CATEGORIES[0];
+
+      const toggleDate = (ds) => {
+        setSelectedDates(prev => prev.includes(ds) ? prev.filter(x=>x!==ds) : [...prev, ds]);
+      };
+
+      const endTimeFromStart = (st, dur) => {
+        const [h, m] = st.split(':').map(Number);
+        const total = h * 60 + m + dur;
+        return `${String(Math.floor(total/60)%24).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`;
+      };
+
+      const handleSave = () => {
+        const entries = selectedDates.map(date => {
+          const st = dayTimes[date] || startTime;
+          const dur = quickDuration;
+          return {
+            id: Date.now().toString() + Math.random().toString(36).slice(2),
+            category, subcategory, date,
+            startTime: st,
+            endTime: endTimeFromStart(st, dur),
+            durationMinutes: dur,
+            status: isFutureDate(date) ? 'planned' : 'completed',
+            effort: 5, performance: 7, mood: '😊',
+            friends: [], notes: '', improvement: ''
+          };
+        });
+        onBatchSave(entries);
+      };
+
+      const dayNames = ['日','一','二','三','四','五','六'];
+
+      return (
+        <div className="p-6 animate-slide-up pb-24 space-y-6">
+          <div className="flex justify-between items-center">
+            <h2 className="text-2xl font-black">📅 快速週計劃</h2>
+            <button onClick={onCancel} className="w-8 h-8 flex items-center justify-center bg-white rounded-full border">✕</button>
+          </div>
+
+          {/* Category */}
+          <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm space-y-4">
+            <label className="text-[10px] font-black text-slate-400 uppercase block">運動類型</label>
+            <div className="grid grid-cols-3 gap-2">
+              {CATEGORIES.map(c => (
+                <button key={c.value} type="button" onClick={()=>{setCategory(c.value); setSubcategory(c.subcategories[0]);}}
+                  className={`p-2 rounded-2xl border-2 transition-all ${category===c.value ? 'border-slate-800 bg-white' : 'border-transparent bg-white opacity-40'}`}>
+                  <div className="text-2xl">{c.icon}</div>
+                  <div className="text-[9px] font-bold text-slate-500 mt-1">{c.value}</div>
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-2 pt-1">
+              {catObj.subcategories.map(s => (
+                <button key={s} type="button" onClick={()=>setSubcategory(s)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${subcategory===s ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Time & Duration */}
+          <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm space-y-4">
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase">預設開始時間</label>
+              <input type="time" value={startTime} onChange={e=>setStartTime(e.target.value)} className="w-full mt-1 p-3 bg-slate-50 rounded-xl font-bold text-slate-900" />
+            </div>
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">時長</label>
+              <div className="flex flex-wrap gap-2">
+                {[30,45,60,90,120].map(mins => (
+                  <button key={mins} type="button" onClick={()=>setQuickDuration(mins)}
+                    className={`px-3 py-2 rounded-xl text-sm font-bold transition-all ${quickDuration===mins ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                    {mins >= 60 ? `${Math.floor(mins/60)}${mins%60 ? `h${mins%60}m` : 'h'}` : `${mins}m`}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Date Grid */}
+          <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
+            <label className="text-[10px] font-black text-slate-400 uppercase mb-3 block">選擇日期（未來14天，可多選）</label>
+            <div className="grid grid-cols-7 gap-1">
+              {Array.from({length:14}, (_,i) => {
+                const d = new Date();
+                d.setDate(d.getDate() + i + 1);
+                const ds = d.toISOString().slice(0,10);
+                const isSelected = selectedDates.includes(ds);
+                const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                return (
+                  <button key={ds} type="button" onClick={()=>toggleDate(ds)}
+                    className={`flex flex-col items-center p-2 rounded-xl transition-all ${isSelected ? 'bg-blue-600 text-white' : isWeekend ? 'bg-blue-50 text-blue-700' : 'bg-slate-50 text-slate-700'}`}>
+                    <span className="text-[9px] font-bold">{dayNames[d.getDay()]}</span>
+                    <span className="text-sm font-black">{d.getDate()}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Per-day time adjustment */}
+          {selectedDates.length > 0 && (
+            <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
+              <label className="text-[10px] font-black text-slate-400 uppercase mb-3 block">微調各日開始時間（可選）</label>
+              <div className="space-y-2">
+                {[...selectedDates].sort().map(ds => {
+                  const d = new Date(ds + 'T00:00:00');
+                  return (
+                    <div key={ds} className="flex items-center gap-3">
+                      <span className="text-sm font-bold text-slate-600 w-24">{ds.slice(5)} ({dayNames[d.getDay()]})</span>
+                      <input type="time" value={dayTimes[ds] || startTime}
+                        onChange={e=>setDayTimes(prev=>({...prev, [ds]: e.target.value}))}
+                        className="flex-1 p-2 bg-slate-50 rounded-xl font-bold text-slate-900 text-sm" />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <button
+            disabled={selectedDates.length === 0}
+            onClick={handleSave}
+            className={`w-full py-4 rounded-2xl font-black text-white transition-all ${selectedDates.length > 0 ? 'bg-blue-600 shadow-xl shadow-blue-200' : 'bg-slate-200 text-slate-400'}`}>
+            {selectedDates.length > 0 ? `📅 建立 ${selectedDates.length} 個計劃` : '請先選擇日期'}
+          </button>
+        </div>
+      );
+    };
 
     const Settings = ({ user, handleAuth, setView }) => {
        const handleDownload = async () => {
@@ -1520,6 +1760,23 @@
         setView('dashboard');
       };
 
+      const handleCopy = (sourceLog, dates) => {
+        const newLogs = dates.map(date => ({
+          ...sourceLog,
+          id: Date.now().toString() + Math.random().toString(36).slice(2),
+          date,
+          status: isFutureDate(date) ? 'planned' : 'completed',
+        }));
+        updateLogs([...newLogs, ...logs]);
+        setEditLog(null);
+        setView('dashboard');
+      };
+
+      const handleBatchSave = (entries) => {
+        updateLogs([...entries, ...logs]);
+        setView('dashboard');
+      };
+
       const handleAuth = async () => {
         const fb = initFirebase();
         if(!fb) { alert("Firebase 初始化失敗"); return; }
@@ -1561,7 +1818,8 @@
           {view === 'trends' && <Trends logs={logs} />}
           {view === 'calendar' && <Calendar logs={logs} onEdit={(l)=>{setEditLog(l); setView('add');}} />}
           {view === 'friends' && <FriendsView key={friendsKey} logs={logs} />}
-          {view === 'add' && <Form onSave={handleSave} onCancel={()=>{setEditLog(null); setView('dashboard');}} onDelete={handleDelete} initData={editLog} logs={logs} />}
+          {view === 'add' && <Form onSave={handleSave} onCancel={()=>{setEditLog(null); setView('dashboard');}} onDelete={handleDelete} onCopy={handleCopy} initData={editLog} logs={logs} />}
+          {view === 'weekplanner' && <WeekPlanner onBatchSave={handleBatchSave} onCancel={()=>setView('dashboard')} />}
           {view === 'settings' && <Settings user={user} handleAuth={handleAuth} setView={setView} />}
         </Layout>
       );
