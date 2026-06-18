@@ -459,7 +459,37 @@
 
       const todayStr = getLocalTodayString();
       const todayPlanned = logs.filter(l => l.date === todayStr && l.status === 'planned');
-      const lastCompleted = completedLogs.sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
+      const sortedCompleted = [...completedLogs].sort((a,b)=>new Date(b.date)-new Date(a.date));
+      const lastCompleted = sortedCompleted[0];
+
+      // Streak
+      const streak = (() => {
+        const dateSet = new Set(completedLogs.map(l => l.date));
+        let s = 0;
+        const d = new Date();
+        if (!dateSet.has(todayStr)) d.setDate(d.getDate() - 1);
+        while (true) {
+          const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+          if (!dateSet.has(ds)) break;
+          s++;
+          d.setDate(d.getDate() - 1);
+        }
+        return s;
+      })();
+
+      // Rest analysis
+      const restAlert = (() => {
+        const dsOf = (daysAgo) => { const d = new Date(); d.setDate(d.getDate()-daysAgo); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+        const efforts = [0,1,2].map(i => {
+          const dayLogs = completedLogs.filter(l=>l.date===dsOf(i));
+          return dayLogs.length > 0 ? dayLogs.reduce((a,b)=>a+(b.effort||5),0)/dayLogs.length : null;
+        });
+        const activeDays = efforts.filter(e=>e!==null).length;
+        const avgEffort = activeDays > 0 ? efforts.filter(e=>e!==null).reduce((a,b)=>a+b,0)/activeDays : 0;
+        if (activeDays >= 3 && avgEffort >= 6) return '連續3日高強度訓練，建議今日休息或輕量活動 😴';
+        if (activeDays >= 3) return '連續3日有訓練，留意身體恢復狀態 💆';
+        return null;
+      })();
 
       return (
         <div className="p-6 space-y-6 animate-slide-up pb-24">
@@ -509,16 +539,26 @@
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-             <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between h-28">
-               <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">本週完成</div>
-               <div className="text-3xl font-black text-slate-800">{thisWeekCount}<span className="text-sm font-bold text-slate-400 ml-1">次</span></div>
+          <div className="grid grid-cols-3 gap-3">
+             <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between h-24">
+               <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">本週</div>
+               <div className="text-2xl font-black text-slate-800">{thisWeekCount}<span className="text-xs font-bold text-slate-400 ml-1">次</span></div>
              </div>
-             <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between h-28">
-               <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">近期心情</div>
-               <div className="text-lg font-black text-slate-800">{moodText}</div>
+             <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between h-24">
+               <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">連續</div>
+               <div className="text-2xl font-black text-slate-800">{streak > 0 ? `🔥${streak}` : '—'}<span className="text-xs font-bold text-slate-400 ml-1">{streak > 0 ? '天' : ''}</span></div>
+             </div>
+             <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between h-24">
+               <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">心情</div>
+               <div className="text-sm font-black text-slate-800">{moodText}</div>
              </div>
           </div>
+
+          {restAlert && (
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 text-xs font-bold text-amber-700">
+              ⚠️ {restAlert}
+            </div>
+          )}
 
           <div>
             <div className="flex justify-between items-center mb-4">
@@ -740,6 +780,15 @@
       const topCat = breakdown[0];
       const isCurrentMonth = viewMonth.getMonth() === now.getMonth() && viewMonth.getFullYear() === now.getFullYear();
 
+      // Month comparison: vs previous month
+      const prevMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth()-1, 1);
+      const prevMonthStr = `${prevMonth.getFullYear()}-${String(prevMonth.getMonth()+1).padStart(2,'0')}`;
+      const prevLogs = completed.filter(l => l.date.startsWith(prevMonthStr));
+      const prevCount = prevLogs.length;
+      const prevMins = prevLogs.reduce((a,b)=>a+(b.durationMinutes||0),0);
+      const countDiff = totalCount - prevCount;
+      const minsDiff = totalMins - prevMins;
+
       return (
         <div className="p-6 space-y-6 animate-slide-up pb-24">
 
@@ -773,6 +822,28 @@
              </div>
           </section>
 
+          {filter === 'month' && (prevCount > 0 || totalCount > 0) && (
+            <section className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
+              <h3 className="text-xs font-black text-slate-400 uppercase mb-4">vs 上月（{prevMonth.toLocaleString('zh-HK',{month:'short'})}）</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <div className="text-[10px] text-slate-400 font-bold mb-1">次數</div>
+                  <div className={`text-2xl font-black ${countDiff > 0 ? 'text-green-600' : countDiff < 0 ? 'text-red-500' : 'text-slate-400'}`}>
+                    {countDiff > 0 ? '+' : ''}{countDiff}
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-1">{prevCount} → {totalCount} 次</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-slate-400 font-bold mb-1">時數</div>
+                  <div className={`text-2xl font-black ${minsDiff > 0 ? 'text-green-600' : minsDiff < 0 ? 'text-red-500' : 'text-slate-400'}`}>
+                    {minsDiff > 0 ? '+' : ''}{(minsDiff/60).toFixed(1)}h
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-1">{(prevMins/60).toFixed(1)} → {(totalMins/60).toFixed(1)} hr</div>
+                </div>
+              </div>
+            </section>
+          )}
+
           <section>
             <h3 className="text-sm font-black text-slate-800 mb-4 uppercase tracking-widest">過去 7 天趨勢</h3>
             <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100 h-48 flex items-end justify-between gap-2">
@@ -784,6 +855,42 @@
                ))}
             </div>
           </section>
+
+          {(() => {
+            const recentSessions = [...filteredLogs]
+              .sort((a,b)=>new Date(a.date)-new Date(b.date))
+              .slice(-10)
+              .filter(l => l.effort || l.performance);
+            if (recentSessions.length < 2) return null;
+            return (
+              <section className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
+                <h3 className="text-xs font-black text-slate-400 uppercase mb-1">狀態趨勢 <span className="text-[10px] font-normal lowercase">最近{recentSessions.length}次</span></h3>
+                <div className="flex items-center gap-3 mb-3 mt-2">
+                  <span className="flex items-center gap-1 text-[10px] font-bold text-rose-400">⬛ 強度</span>
+                  <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-500">⬛ 表現</span>
+                </div>
+                <div className="flex items-end gap-1 h-24">
+                  {recentSessions.map((l, i) => {
+                    const cat = CATEGORIES.find(c=>c.value===l.category);
+                    const effortH = ((l.effort||5)/10)*100;
+                    const perfH = ((l.performance||5)/10)*100;
+                    return (
+                      <div key={i} className="flex-1 flex flex-col items-center gap-0.5 h-full justify-end group relative">
+                        <div className="w-full flex gap-0.5 items-end h-20">
+                          <div style={{height:`${effortH}%`}} className="flex-1 bg-rose-300 rounded-t-sm min-h-[4px]"></div>
+                          <div style={{height:`${perfH}%`}} className="flex-1 bg-emerald-400 rounded-t-sm min-h-[4px]"></div>
+                        </div>
+                        <div className="text-[8px] text-slate-400 font-bold mt-1">{l.date.slice(5).replace('-','/')}</div>
+                        <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] px-2 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10">
+                          {cat?.icon} 強{l.effort||'?'} 表{l.performance||'?'}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })()}
 
           <section>
                <h3 className="text-sm font-black text-slate-800 mb-4 uppercase tracking-widest">項目分佈 <span className="text-[10px] font-normal text-slate-400 lowercase ml-1">(點擊查看詳情)</span></h3>
