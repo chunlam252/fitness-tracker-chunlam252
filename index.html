@@ -1274,19 +1274,22 @@
                   <h3 className="text-lg font-black">複製到其他日期</h3>
                   <button onClick={()=>setShowCopyModal(false)} className="w-8 h-8 flex items-center justify-center bg-slate-100 rounded-full">✕</button>
                 </div>
-                <p className="text-xs text-slate-400 font-bold mb-4">選擇日期（可多選），系統會幫你複製同一個訓練項目</p>
+                <p className="text-xs text-slate-400 font-bold mb-4">選擇日期（可多選），包括過去及未來日期</p>
                 <div className="grid grid-cols-7 gap-1 mb-6">
-                  {Array.from({length:14}, (_,i) => {
+                  {Array.from({length:28}, (_,i) => {
                     const d = new Date();
-                    d.setDate(d.getDate() + i + 1);
+                    d.setDate(d.getDate() - 13 + i);
                     const ds = d.toISOString().slice(0,10);
                     const dayNames = ['日','一','二','三','四','五','六'];
                     const isSelected = copyDates.includes(ds);
+                    const isToday = ds === getLocalTodayString();
+                    const isPast = d < new Date(new Date().setHours(0,0,0,0));
                     const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                    const isSameAsSource = ds === data.date;
                     return (
-                      <button key={ds} type="button"
+                      <button key={ds} type="button" disabled={isSameAsSource}
                         onClick={()=>setCopyDates(prev => prev.includes(ds) ? prev.filter(x=>x!==ds) : [...prev, ds])}
-                        className={`flex flex-col items-center p-2 rounded-xl transition-all ${isSelected ? 'bg-blue-600 text-white' : isWeekend ? 'bg-blue-50 text-blue-700' : 'bg-slate-50 text-slate-700'}`}>
+                        className={`flex flex-col items-center p-2 rounded-xl transition-all ${isSameAsSource ? 'opacity-20' : ''} ${isSelected ? 'bg-blue-600 text-white' : isToday ? 'bg-slate-800 text-white' : isPast ? 'bg-slate-50 text-slate-500' : isWeekend ? 'bg-blue-50 text-blue-700' : 'bg-slate-50 text-slate-700'}`}>
                         <span className="text-[9px] font-bold">{dayNames[d.getDay()]}</span>
                         <span className="text-sm font-black">{d.getDate()}</span>
                         <span className="text-[9px]">{d.getMonth()+1}/{d.getDate()}</span>
@@ -1401,17 +1404,19 @@
 
           {/* Date Grid */}
           <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
-            <label className="text-[10px] font-black text-slate-400 uppercase mb-3 block">選擇日期（未來14天，可多選）</label>
+            <label className="text-[10px] font-black text-slate-400 uppercase mb-3 block">選擇日期（過去及未來，可多選）</label>
             <div className="grid grid-cols-7 gap-1">
-              {Array.from({length:14}, (_,i) => {
+              {Array.from({length:28}, (_,i) => {
                 const d = new Date();
-                d.setDate(d.getDate() + i + 1);
+                d.setDate(d.getDate() - 13 + i);
                 const ds = d.toISOString().slice(0,10);
                 const isSelected = selectedDates.includes(ds);
+                const isToday = ds === getLocalTodayString();
+                const isPast = d < new Date(new Date().setHours(0,0,0,0));
                 const isWeekend = d.getDay() === 0 || d.getDay() === 6;
                 return (
                   <button key={ds} type="button" onClick={()=>toggleDate(ds)}
-                    className={`flex flex-col items-center p-2 rounded-xl transition-all ${isSelected ? 'bg-blue-600 text-white' : isWeekend ? 'bg-blue-50 text-blue-700' : 'bg-slate-50 text-slate-700'}`}>
+                    className={`flex flex-col items-center p-2 rounded-xl transition-all ${isSelected ? 'bg-blue-600 text-white' : isToday ? 'bg-slate-800 text-white' : isPast ? 'bg-slate-50 text-slate-500' : isWeekend ? 'bg-blue-50 text-blue-700' : 'bg-slate-50 text-slate-700'}`}>
                     <span className="text-[9px] font-bold">{dayNames[d.getDay()]}</span>
                     <span className="text-sm font-black">{d.getDate()}</span>
                   </button>
