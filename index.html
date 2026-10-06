@@ -104,6 +104,7 @@
       { value: '羽毛球', subcategories: ['街場/Drop-in/Friendly', '技術練習', '正式比賽'], color: 'bg-green-500', text: 'text-green-500', icon: '🏸' },
       { value: '排球', subcategories: ['打比賽', '隊訓', '街場/Drop-in/Friendly', '技術訓練'], color: 'bg-orange-500', text: 'text-orange-500', icon: '🏐' },
       { value: '足球', subcategories: ['4v4', '5v5', '7v7', '11v11'], color: 'bg-emerald-500', text: 'text-emerald-500', icon: '⚽' },
+      { value: '游泳', subcategories: ['自由泳', '蛙泳', '背泳', '蝶泳', '混合泳', '水療/休閒'], color: 'bg-cyan-500', text: 'text-cyan-500', icon: '🏊' },
       { value: '跑步', subcategories: ['慢跑', '長跑', '衝刺練習', '馬拉松訓練'], color: 'bg-red-500', text: 'text-red-500', icon: '🏃' },
       { value: '拉筋', subcategories: ['晨間伸展', '睡前放鬆', '運動後拉筋', '滾筒放鬆', '動態伸展'], color: 'bg-indigo-500', text: 'text-indigo-500', icon: '🤸' },
       { value: '其他', subcategories: ['自定義項目'], color: 'bg-slate-500', text: 'text-slate-500', icon: '✨' },
@@ -926,7 +927,7 @@
       );
     }
 
-    const Calendar = ({ logs, onEdit }) => {
+    const Calendar = ({ logs, onEdit, onAddForDate }) => {
       const [date, setDate] = useState(new Date());
       const [sel, setSel] = useState(getLocalTodayString());
 
@@ -1023,7 +1024,7 @@
            <div className="mt-6 space-y-3">
              <div className="flex justify-between items-center px-1">
                 <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">{sel}</h3>
-                <span className="text-[10px] font-bold text-slate-400">{dayLogs.length} 筆行程</span>
+                <button onClick={()=>onAddForDate(sel)} className="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-xl active:scale-95 transition-transform">＋ 新增</button>
              </div>
              {dayLogs.map(l => (
                <div key={l.id} onClick={()=>onEdit(l)} className={`p-4 rounded-3xl border flex items-center gap-4 cursor-pointer transition-colors ${l.status==='planned' ? 'bg-slate-50 border-dashed border-slate-300 hover:border-blue-300' : 'bg-white border-slate-100 hover:border-slate-300'}`}>
@@ -1098,12 +1099,12 @@
       );
     };
 
-    const Form = ({ onSave, onCancel, onDelete, onCopy, initData, logs }) => {
+    const Form = ({ onSave, onCancel, onDelete, onCopy, initData, logs, defaultDate }) => {
       const [data, setData] = useState(() => {
-        const defaults = { 
-            category: 'Gym', 
-            subcategory: '重量訓練', 
-            date: getLocalTodayString(),
+        const defaults = {
+            category: 'Gym',
+            subcategory: '重量訓練',
+            date: defaultDate || getLocalTodayString(),
             startTime: '18:00',
             endTime: '19:00',
             durationMinutes: 60,
@@ -1783,6 +1784,7 @@
         } catch(e) { return []; }
       });
       const [editLog, setEditLog] = useState(null);
+      const [calendarDate, setCalendarDate] = useState(null);
       const [user, setUser] = useState(null);
       const [status, setStatus] = useState('初始化...');
       
@@ -2060,9 +2062,9 @@
              />
           )}
           {view === 'trends' && <Trends logs={logs} />}
-          {view === 'calendar' && <Calendar logs={logs} onEdit={(l)=>{setEditLog(l); setView('add');}} />}
+          {view === 'calendar' && <Calendar logs={logs} onEdit={(l)=>{setEditLog(l); setCalendarDate(null); setView('add');}} onAddForDate={(date)=>{setEditLog(null); setCalendarDate(date); setView('add');}} />}
           {view === 'friends' && <FriendsView key={friendsKey} logs={logs} />}
-          {view === 'add' && <Form onSave={handleSave} onCancel={()=>{setEditLog(null); setView('dashboard');}} onDelete={handleDelete} onCopy={handleCopy} initData={editLog} logs={logs} />}
+          {view === 'add' && <Form onSave={handleSave} onCancel={()=>{setEditLog(null); setCalendarDate(null); setView('dashboard');}} onDelete={handleDelete} onCopy={handleCopy} initData={editLog} logs={logs} defaultDate={calendarDate} />}
           {view === 'weekplanner' && <WeekPlanner onBatchSave={handleBatchSave} onCancel={()=>setView('dashboard')} />}
           {view === 'settings' && <Settings user={user} handleAuth={handleAuth} setView={setView} />}
         </Layout>
