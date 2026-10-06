@@ -713,6 +713,136 @@
                      </div>
                 </div>
 
+                {/* Performance Charts */}
+                {(() => {
+                  const perfLogs = catLogs.filter(l => l.perf).sort((a,b) => new Date(a.date)-new Date(b.date));
+                  if (!perfLogs.length) return null;
+
+                  if (selectedCategory === 'Gym') {
+                    // Per-exercise PR list
+                    const prMap = {};
+                    perfLogs.forEach(l => {
+                      (l.perf?.exercises||[]).forEach(ex => {
+                        if (!ex.name) return;
+                        const w = Number(ex.weightKg)||0;
+                        if (!prMap[ex.name] || w > prMap[ex.name].weight) {
+                          prMap[ex.name] = { weight: w, date: l.date };
+                        }
+                      });
+                    });
+                    const prs = Object.entries(prMap).sort((a,b)=>b[1].weight-a[1].weight);
+
+                    // Session volume bar chart (last 8)
+                    const volSessions = perfLogs.slice(-8).map(l => ({
+                      date: l.date.slice(5).replace('-','/'),
+                      vol: (l.perf?.exercises||[]).reduce((a,ex)=>a+(Number(ex.weightKg)||0)*(Number(ex.sets)||0)*(Number(ex.reps)||0),0)
+                    })).filter(s=>s.vol>0);
+                    const maxVol = Math.max(...volSessions.map(s=>s.vol), 1);
+
+                    return (
+                      <div className="space-y-4">
+                        {volSessions.length > 0 && (
+                          <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
+                            <h3 className="text-xs font-black text-slate-400 uppercase mb-4">💪 每次 Total Volume (kg)</h3>
+                            <div className="flex items-end gap-1.5 h-24">
+                              {volSessions.map((s,i) => (
+                                <div key={i} className="flex-1 flex flex-col items-center gap-1 group relative">
+                                  <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] px-1.5 py-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">{s.vol.toLocaleString()}kg</div>
+                                  <div className="w-full bg-blue-500 rounded-t-lg transition-all" style={{height:`${Math.max(4,(s.vol/maxVol)*88)}px`}}></div>
+                                  <div className="text-[8px] text-slate-400 font-bold">{s.date}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {prs.length > 0 && (
+                          <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
+                            <h3 className="text-xs font-black text-slate-400 uppercase mb-3">🏆 個人最重紀錄 (PR)</h3>
+                            <div className="space-y-2">
+                              {prs.map(([name, {weight, date}]) => (
+                                <div key={name} className="flex items-center justify-between py-1.5 border-b border-slate-50 last:border-0">
+                                  <div className="text-sm font-bold text-slate-800">{name}</div>
+                                  <div className="text-right"><div className="text-sm font-black text-blue-600">{weight} kg</div><div className="text-[9px] text-slate-400">{date}</div></div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  if (selectedCategory === '跑步') {
+                    const runSessions = perfLogs.slice(-10).map(l => ({
+                      date: l.date.slice(5).replace('-','/'),
+                      dist: Number(l.perf?.distanceKm)||0,
+                      pace: (Number(l.perf?.distanceKm)>0 && Number(l.perf?.timeMin)>0) ? Number(l.perf.timeMin)/Number(l.perf.distanceKm) : 0,
+                      hr: Number(l.perf?.heartRate)||0
+                    })).filter(s=>s.dist>0);
+                    const maxDist = Math.max(...runSessions.map(s=>s.dist), 1);
+                    const bestPace = runSessions.filter(s=>s.pace>0).reduce((best,s)=>s.pace<best?s.pace:best, Infinity);
+                    const bestDist = Math.max(...runSessions.map(s=>s.dist));
+
+                    return (
+                      <div className="space-y-4">
+                        {runSessions.length > 0 && (
+                          <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
+                            <h3 className="text-xs font-black text-slate-400 uppercase mb-4">🏃 距離紀錄 (km)</h3>
+                            <div className="flex items-end gap-1.5 h-24">
+                              {runSessions.map((s,i) => (
+                                <div key={i} className="flex-1 flex flex-col items-center gap-1 group relative">
+                                  <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] px-1.5 py-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">{s.dist}km{s.pace>0?` • ${s.pace.toFixed(1)}min/km`:''}</div>
+                                  <div className="w-full bg-green-500 rounded-t-lg transition-all" style={{height:`${Math.max(4,(s.dist/maxDist)*88)}px`}}></div>
+                                  <div className="text-[8px] text-slate-400 font-bold">{s.date}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        <div className="grid grid-cols-2 gap-3">
+                          {bestDist > 0 && <div className="bg-green-50 p-4 rounded-2xl text-center"><div className="text-[10px] font-black text-green-600 uppercase">最遠距離 PR</div><div className="text-xl font-black text-green-700 mt-1">{bestDist} <span className="text-xs">km</span></div></div>}
+                          {bestPace < Infinity && <div className="bg-orange-50 p-4 rounded-2xl text-center"><div className="text-[10px] font-black text-orange-600 uppercase">最快配速 PR</div><div className="text-xl font-black text-orange-700 mt-1">{bestPace.toFixed(2)} <span className="text-xs">min/km</span></div></div>}
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  if (selectedCategory === '游泳') {
+                    const swimSessions = perfLogs.slice(-10).map(l => ({
+                      date: l.date.slice(5).replace('-','/'),
+                      dist: Number(l.perf?.distanceM)||0
+                    })).filter(s=>s.dist>0);
+                    const maxDist = Math.max(...swimSessions.map(s=>s.dist), 1);
+                    const bestDist = Math.max(...swimSessions.map(s=>s.dist));
+                    const totalDist = swimSessions.reduce((a,s)=>a+s.dist, 0);
+
+                    return (
+                      <div className="space-y-4">
+                        {swimSessions.length > 0 && (
+                          <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
+                            <h3 className="text-xs font-black text-slate-400 uppercase mb-4">🏊 游泳距離 (m)</h3>
+                            <div className="flex items-end gap-1.5 h-24">
+                              {swimSessions.map((s,i) => (
+                                <div key={i} className="flex-1 flex flex-col items-center gap-1 group relative">
+                                  <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] px-1.5 py-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">{s.dist}m</div>
+                                  <div className="w-full bg-cyan-500 rounded-t-lg transition-all" style={{height:`${Math.max(4,(s.dist/maxDist)*88)}px`}}></div>
+                                  <div className="text-[8px] text-slate-400 font-bold">{s.date}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        <div className="grid grid-cols-2 gap-3">
+                          {bestDist > 0 && <div className="bg-cyan-50 p-4 rounded-2xl text-center"><div className="text-[10px] font-black text-cyan-600 uppercase">最長距離 PR</div><div className="text-xl font-black text-cyan-700 mt-1">{bestDist} <span className="text-xs">m</span></div></div>}
+                          {totalDist > 0 && <div className="bg-blue-50 p-4 rounded-2xl text-center"><div className="text-[10px] font-black text-blue-600 uppercase">累積總距離</div><div className="text-xl font-black text-blue-700 mt-1">{totalDist >= 1000 ? (totalDist/1000).toFixed(1)+'km' : totalDist+'m'}</div></div>}
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return null;
+                })()}
+
                 {/* Section 1: Last 5 Moods */}
                 <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
                     <h3 className="text-xs font-black text-slate-400 uppercase mb-3 text-center">最近 5 次心情</h3>
@@ -1128,6 +1258,17 @@
 
       const [friendInput, setFriendInput] = useState('');
       const [showFriendDropdown, setShowFriendDropdown] = useState(false);
+      const [showPerf, setShowPerf] = useState(!!initData?.perf);
+      const [perf, setPerf] = useState(() => initData?.perf || { exercises: [], distanceKm: '', timeMin: '', heartRate: '', distanceM: '', laps: '' });
+
+      const GYM_EXERCISES = ['Bench Press','Squat','Deadlift','Pull Up','Shoulder Press','Barbell Row','Incline Press','Lat Pulldown','Dips','Bicep Curl','Tricep Pushdown','Leg Press','Romanian DL','Leg Curl','Lateral Raise','Face Pull','Cable Fly'];
+
+      const addExercise = () => setPerf(p => ({...p, exercises: [...p.exercises, {name:'', weightKg:'', sets:'', reps:''}]}));
+      const updateEx = (i, field, val) => setPerf(p => { const ex=[...p.exercises]; ex[i]={...ex[i],[field]:val}; return {...p, exercises:ex}; });
+      const removeEx = (i) => setPerf(p => ({...p, exercises: p.exercises.filter((_,idx)=>idx!==i)}));
+      const exVolume = (ex) => { const v=(Number(ex.weightKg)||0)*(Number(ex.sets)||0)*(Number(ex.reps)||0); return v>0?v:null; };
+      const totalVolume = perf.exercises.reduce((a,ex)=>a+(exVolume(ex)||0),0);
+      const runPace = () => { const d=Number(perf.distanceKm),t=Number(perf.timeMin); return (d>0&&t>0) ? (t/d).toFixed(2) : null; };
       const [quickDuration, setQuickDuration] = useState(() => {
         if (initData?.durationMinutes) {
           return [30,45,60,90,120].includes(initData.durationMinutes) ? initData.durationMinutes : 'custom';
@@ -1409,7 +1550,66 @@
              </div>
           )}
 
-          <button onClick={()=>onSave({...data, id:initData?.id||Date.now().toString()})} className={`w-full py-4 text-white rounded-2xl font-black shadow-xl transform active:scale-95 transition-all ${isPlanned ? 'bg-slate-500 shadow-slate-200' : 'bg-slate-900 shadow-slate-300'}`}>
+          {/* Performance Section */}
+          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+            <button type="button" onClick={()=>setShowPerf(p=>!p)} className="w-full flex items-center justify-between p-5">
+              <span className="font-black text-sm text-slate-700">📊 成績記錄 {showPerf && perf.exercises.length > 0 ? `(${perf.exercises.length} 個動作)` : ''}</span>
+              <span className="text-slate-400 font-bold text-lg">{showPerf ? '▲' : '▼'}</span>
+            </button>
+            {showPerf && (
+              <div className="px-5 pb-5 space-y-4 border-t border-slate-50 pt-4">
+                {(data.category === 'Gym') && (
+                  <div className="space-y-3">
+                    {perf.exercises.map((ex, i) => (
+                      <div key={i} className="bg-slate-50 rounded-2xl p-3 space-y-2">
+                        <div className="flex gap-2 items-center">
+                          <input value={ex.name} onChange={e=>updateEx(i,'name',e.target.value)} placeholder="動作名稱" className="flex-1 p-2 bg-white rounded-xl text-sm font-bold text-slate-800 border border-slate-100 outline-none" />
+                          <button type="button" onClick={()=>removeEx(i)} className="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-red-400 font-bold text-lg flex-shrink-0">✕</button>
+                        </div>
+                        <div className="flex flex-wrap gap-1 pb-1">
+                          {GYM_EXERCISES.filter(e=>!ex.name || e.toLowerCase().includes(ex.name.toLowerCase())).slice(0,6).map(e=>(
+                            <button key={e} type="button" onClick={()=>updateEx(i,'name',e)} className="text-[10px] px-2 py-1 bg-white border border-slate-200 rounded-lg font-bold text-slate-500 active:scale-95">{e}</button>
+                          ))}
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          <div><label className="text-[9px] font-black text-slate-400 uppercase block mb-1">重量(kg)</label><input type="number" value={ex.weightKg} onChange={e=>updateEx(i,'weightKg',e.target.value)} className="w-full p-2 bg-white rounded-xl text-sm font-bold text-slate-800 border border-slate-100 text-center outline-none" /></div>
+                          <div><label className="text-[9px] font-black text-slate-400 uppercase block mb-1">組數</label><input type="number" value={ex.sets} onChange={e=>updateEx(i,'sets',e.target.value)} className="w-full p-2 bg-white rounded-xl text-sm font-bold text-slate-800 border border-slate-100 text-center outline-none" /></div>
+                          <div><label className="text-[9px] font-black text-slate-400 uppercase block mb-1">每組次數</label><input type="number" value={ex.reps} onChange={e=>updateEx(i,'reps',e.target.value)} className="w-full p-2 bg-white rounded-xl text-sm font-bold text-slate-800 border border-slate-100 text-center outline-none" /></div>
+                        </div>
+                        {exVolume(ex) && <div className="text-[10px] font-black text-blue-500 text-right">Volume: {exVolume(ex).toLocaleString()} kg</div>}
+                      </div>
+                    ))}
+                    <button type="button" onClick={addExercise} className="w-full py-2.5 border-2 border-dashed border-slate-200 rounded-2xl text-sm font-bold text-slate-400 active:scale-95 transition-transform">＋ 加動作</button>
+                    {totalVolume > 0 && <div className="text-center text-sm font-black text-slate-700 bg-slate-50 py-2 rounded-xl">總 Volume：{totalVolume.toLocaleString()} kg</div>}
+                  </div>
+                )}
+                {(data.category === '跑步') && (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><label className="text-[10px] font-black text-slate-400 uppercase block mb-1">距離 (km)</label><input type="number" step="0.1" value={perf.distanceKm} onChange={e=>setPerf(p=>({...p,distanceKm:e.target.value}))} className="w-full p-3 bg-slate-50 rounded-xl font-bold text-slate-900 outline-none" placeholder="5.0" /></div>
+                      <div><label className="text-[10px] font-black text-slate-400 uppercase block mb-1">時間 (分鐘)</label><input type="number" value={perf.timeMin} onChange={e=>setPerf(p=>({...p,timeMin:e.target.value}))} className="w-full p-3 bg-slate-50 rounded-xl font-bold text-slate-900 outline-none" placeholder="28" /></div>
+                    </div>
+                    {runPace() && <div className="text-center text-sm font-black text-blue-600 bg-blue-50 py-2 rounded-xl">🏃 配速：{runPace()} min/km</div>}
+                    <div><label className="text-[10px] font-black text-slate-400 uppercase block mb-1">平均心跳 (可選)</label><input type="number" value={perf.heartRate} onChange={e=>setPerf(p=>({...p,heartRate:e.target.value}))} className="w-full p-3 bg-slate-50 rounded-xl font-bold text-slate-900 outline-none" placeholder="155 bpm" /></div>
+                  </div>
+                )}
+                {(data.category === '游泳') && (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><label className="text-[10px] font-black text-slate-400 uppercase block mb-1">距離 (米)</label><input type="number" value={perf.distanceM} onChange={e=>setPerf(p=>({...p,distanceM:e.target.value,laps:e.target.value?String(Math.round(Number(e.target.value)/50)):''}))} className="w-full p-3 bg-slate-50 rounded-xl font-bold text-slate-900 outline-none" placeholder="1000" /></div>
+                      <div><label className="text-[10px] font-black text-slate-400 uppercase block mb-1">圈數 (50m/圈)</label><input type="number" value={perf.laps} onChange={e=>setPerf(p=>({...p,laps:e.target.value,distanceM:e.target.value?String(Number(e.target.value)*50):''}))} className="w-full p-3 bg-slate-50 rounded-xl font-bold text-slate-900 outline-none" placeholder="20" /></div>
+                    </div>
+                    {Number(perf.distanceM)>0 && <div className="text-center text-sm font-black text-cyan-600 bg-cyan-50 py-2 rounded-xl">🏊 {Number(perf.distanceM).toLocaleString()}m = {Math.round(Number(perf.distanceM)/50)} 圈</div>}
+                  </div>
+                )}
+                {!['Gym','跑步','游泳'].includes(data.category) && (
+                  <p className="text-xs text-slate-400 text-center py-2">此類型暫不支援結構化成績記錄，可用下方備忘欄記錄</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          <button onClick={()=>onSave({...data, id:initData?.id||Date.now().toString(), perf: showPerf ? perf : undefined})} className={`w-full py-4 text-white rounded-2xl font-black shadow-xl transform active:scale-95 transition-all ${isPlanned ? 'bg-slate-500 shadow-slate-200' : 'bg-slate-900 shadow-slate-300'}`}>
               {isPlanned ? '📅 儲存計劃' : '✅ 完成打卡'}
           </button>
           
