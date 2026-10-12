@@ -592,7 +592,7 @@
                         {l.durationMinutes && !l.startTime && <span>• {l.durationMinutes} min</span>}
                         {!isPlanned && <span>• {l.mood || 'N/A'}</span>}
                       </div>
-                      {l.photo && <img src={l.photo} alt="" className="mt-2 rounded-xl w-full object-cover" style={{maxHeight:'120px'}} />}
+                      {l.photo && <span className="text-[10px] text-slate-400 mt-1 block">📸 有相片</span>}
                     </div>
                     {isPlanned && (
                         <div className="absolute right-4 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full border border-slate-200 flex items-center justify-center text-slate-300 group-hover:bg-green-500 group-hover:text-white group-hover:border-transparent transition-all">
@@ -708,25 +708,36 @@
                   if (!perfLogs.length) return null;
 
                   if (selectedCategory === 'Gym') {
-                    // Per-exercise PR list
-                    const prMap = {};
                     const normExT = (ex) => {
                       if (ex.sets && Array.isArray(ex.sets)) return ex;
                       const count = Number(ex.sets)||1;
-                      return { name: ex.name, sets: Array.from({length:count},()=>({weightKg:ex.weightKg||'',reps:ex.reps||''})) };
+                      return { name: ex.name, muscleGroup: ex.muscleGroup||'', sets: Array.from({length:count},()=>({weightKg:ex.weightKg||'',reps:ex.reps||''})) };
                     };
+
+                    // Build per-exercise history
+                    const exHistory = {};
                     perfLogs.forEach(l => {
                       (l.perf?.exercises||[]).map(normExT).forEach(ex => {
                         if (!ex.name) return;
-                        const w = Math.max(...ex.sets.map(s=>Number(s.weightKg)||0));
-                        if (!prMap[ex.name] || w > prMap[ex.name].weight) {
-                          prMap[ex.name] = { weight: w, date: l.date };
-                        }
+                        if (!exHistory[ex.name]) exHistory[ex.name] = { group: ex.muscleGroup||'', sessions: [] };
+                        const maxW = Math.max(...ex.sets.map(s=>Number(s.weightKg)||0));
+                        if (maxW > 0) exHistory[ex.name].sessions.push({ date: l.date, maxW });
+                        if (!exHistory[ex.name].group && ex.muscleGroup) exHistory[ex.name].group = ex.muscleGroup;
                       });
                     });
-                    const prs = Object.entries(prMap).sort((a,b)=>b[1].weight-a[1].weight);
+                    Object.values(exHistory).forEach(e => e.sessions.sort((a,b)=>a.date.localeCompare(b.date)));
 
-                    // Session volume bar chart (last 8)
+                    // Group by muscle group
+                    const GROUP_ORDER = ['Chest','Back','Shoulders','Arms','Legs','Core','Full Body'];
+                    const byGroup = {};
+                    Object.entries(exHistory).forEach(([name, data]) => {
+                      const g = data.group || 'Other';
+                      if (!byGroup[g]) byGroup[g] = [];
+                      byGroup[g].push({ name, sessions: data.sessions });
+                    });
+                    const groupsWithData = [...GROUP_ORDER, 'Other'].filter(g => byGroup[g]);
+
+                    // Total volume per session
                     const volSessions = perfLogs.slice(-8).map(l => ({
                       date: l.date.slice(5).replace('-','/'),
                       vol: (l.perf?.exercises||[]).map(normExT).reduce((a,ex)=>a+ex.sets.reduce((b,s)=>b+(Number(s.weightKg)||0)*(Number(s.reps)||0),0),0)
@@ -735,31 +746,85 @@
 
                     return (
                       <div className="space-y-4">
+                        {/* Total Volume Chart */}
                         {volSessions.length > 0 && (
                           <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
                             <h3 className="text-xs font-black text-slate-400 uppercase mb-4">💪 每次 Total Volume (kg)</h3>
-                            <div className="flex items-end gap-1.5 h-24">
+                            <div className="flex items-end gap-1.5 h-20">
                               {volSessions.map((s,i) => (
                                 <div key={i} className="flex-1 flex flex-col items-center gap-1 group relative">
-                                  <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] px-1.5 py-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">{s.vol.toLocaleString()}kg</div>
-                                  <div className="w-full bg-blue-500 rounded-t-lg transition-all" style={{height:`${Math.max(4,(s.vol/maxVol)*88)}px`}}></div>
+                                  <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[8px] px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap z-10">{s.vol.toLocaleString()}kg</div>
+                                  <div className="w-full bg-blue-500 rounded-t" style={{height:`${Math.max(3,(s.vol/maxVol)*68)}px`}}/>
                                   <div className="text-[8px] text-slate-400 font-bold">{s.date}</div>
                                 </div>
                               ))}
                             </div>
                           </div>
                         )}
-                        {prs.length > 0 && (
-                          <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
-                            <h3 className="text-xs font-black text-slate-400 uppercase mb-3">🏆 個人最重紀錄 (PR)</h3>
-                            <div className="space-y-2">
-                              {prs.map(([name, {weight, date}]) => (
-                                <div key={name} className="flex items-center justify-between py-1.5 border-b border-slate-50 last:border-0">
-                                  <div className="text-sm font-bold text-slate-800">{name}</div>
-                                  <div className="text-right"><div className="text-sm font-black text-blue-600">{weight} kg</div><div className="text-[9px] text-slate-400">{date}</div></div>
-                                </div>
-                              ))}
+
+                        {/* By Muscle Group with Progress Charts */}
+                        {groupsWithData.length > 0 ? groupsWithData.map(group => (
+                          <div key={group} className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+                            <div className="flex items-center gap-3 px-5 py-3.5 bg-slate-50 border-b border-slate-100">
+                              <MuscleSvg group={group} size={30}/>
+                              <span className="text-sm font-black text-slate-700">{group}</span>
+                              <span className="text-[10px] font-bold text-slate-400 ml-auto">{byGroup[group].length} 個動作</span>
                             </div>
+                            <div className="divide-y divide-slate-50">
+                              {byGroup[group].map(({name, sessions}) => {
+                                const pr = sessions.length ? Math.max(...sessions.map(s=>s.maxW)) : 0;
+                                const first = sessions[0], last = sessions[sessions.length-1];
+                                const gained = sessions.length >= 2 ? last.maxW - first.maxW : null;
+                                const maxW = Math.max(...sessions.map(s=>s.maxW), 1);
+                                return (
+                                  <div key={name} className="px-5 py-3.5">
+                                    <div className="flex items-start justify-between mb-2.5">
+                                      <div>
+                                        <div className="text-sm font-bold text-slate-800 leading-tight">{name}</div>
+                                        <div className="text-[10px] text-slate-400 mt-0.5">
+                                          {sessions.length} 次 · PR <span className="font-black text-blue-600">{pr}kg</span>
+                                        </div>
+                                      </div>
+                                      {gained !== null && (
+                                        <div className={`text-xs font-black flex-shrink-0 ml-2 ${gained > 0 ? 'text-green-500' : gained < 0 ? 'text-red-400' : 'text-slate-400'}`}>
+                                          {gained > 0 ? `↑ +${gained.toFixed(1)}kg` : gained < 0 ? `↓ ${gained.toFixed(1)}kg` : '→ 持平'}
+                                        </div>
+                                      )}
+                                    </div>
+                                    {/* Progress chart: max weight per session */}
+                                    {sessions.length > 0 && (
+                                      <div className="flex items-end gap-0.5 h-10">
+                                        {sessions.slice(-12).map((s,si,arr) => {
+                                          const isLatest = si === arr.length - 1;
+                                          const isPR = s.maxW === pr;
+                                          return (
+                                            <div key={si} className="flex-1 relative group/bar">
+                                              <div
+                                                className={`w-full rounded-t-sm transition-all ${isPR ? 'bg-amber-400' : isLatest ? 'bg-blue-500' : 'bg-blue-200'}`}
+                                                style={{height:`${Math.max(3,(s.maxW/maxW)*36)}px`}}
+                                              />
+                                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 bg-slate-800 text-white text-[8px] px-1.5 py-0.5 rounded opacity-0 group-hover/bar:opacity-100 whitespace-nowrap z-10 pointer-events-none">
+                                                {s.maxW}kg · {s.date.slice(5).replace('-','/')}
+                                                {isPR ? ' 🏆' : ''}
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                    {sessions.length === 1 && (
+                                      <div className="text-[9px] text-slate-400 mt-1">記錄多次後可睇到進步趨勢 📈</div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )) : (
+                          <div className="text-center py-10 text-slate-400">
+                            <div className="text-3xl mb-2">💪</div>
+                            <div className="text-sm font-bold">尚未有成績紀錄</div>
+                            <div className="text-[10px] mt-1">記錄訓練時開啟「📊 成績記錄」</div>
                           </div>
                         )}
                       </div>
@@ -1189,13 +1254,68 @@
     };
 
     const EXERCISE_DB = {
-      'Chest':      ['Bench Press (Barbell)','Bench Press (Dumbbell)','Bench Press (Smith Machine)','Incline Press (Barbell)','Incline Press (Dumbbell)','Decline Press','Cable Crossover','Chest Fly (Dumbbell)','Chest Fly (Machine)','Push Up','Chest Dip','Pec Deck'],
-      'Back':       ['Deadlift','Pull Up','Chin Up','Lat Pulldown','Barbell Row','Cable Row','Single Arm Row (Dumbbell)','Face Pull','Shrug','Back Extension','T-Bar Row','Rack Pull'],
-      'Shoulders':  ['Shoulder Press (Barbell)','Shoulder Press (Dumbbell)','Arnold Press','Lateral Raise','Front Raise','Rear Delt Fly','Upright Row','Cable Lateral Raise','Machine Shoulder Press'],
-      'Arms':       ['Bicep Curl (Barbell)','Bicep Curl (Dumbbell)','Hammer Curl','Cable Curl','Preacher Curl','Tricep Pushdown','Skull Crusher','Overhead Tricep Extension','Dips','Close Grip Bench Press','Concentration Curl'],
-      'Legs':       ['Squat (Barbell)','Front Squat','Leg Press','Romanian Deadlift','Leg Curl (Machine)','Leg Extension (Machine)','Calf Raise','Calf Press on Leg Press','Hip Thrust','Lunge','Bulgarian Split Squat','Hack Squat','Sumo Deadlift','Goblet Squat'],
-      'Core':       ['Plank','Crunch','Leg Raise','Ab Wheel','Cable Crunch','Russian Twist','Hanging Leg Raise','Side Plank','Hollow Body Hold'],
-      'Full Body':  ['Clean and Jerk','Snatch','Thruster','Burpee','Farmer Walk','Kettlebell Swing','Battle Ropes'],
+      'Chest': [
+        'Bench Press (Barbell)','Bench Press (Dumbbell)','Bench Press (Smith Machine)',
+        'Incline Bench Press (Barbell)','Incline Bench Press (Dumbbell)','Incline Bench Press (Smith Machine)',
+        'Decline Bench Press (Barbell)','Decline Bench Press (Dumbbell)',
+        'Cable Crossover','Cable Fly (High to Low)','Cable Fly (Low to High)',
+        'Chest Fly (Dumbbell)','Chest Fly (Machine)','Pec Deck',
+        'Push Up','Wide Push Up','Diamond Push Up','Weighted Push Up',
+        'Chest Dip','Dumbbell Pullover','Around the World',
+      ],
+      'Back': [
+        'Deadlift','Conventional Deadlift','Sumo Deadlift','Romanian Deadlift','Rack Pull',
+        'Pull Up','Chin Up','Weighted Pull Up','Neutral Grip Pull Up',
+        'Lat Pulldown','Lat Pulldown (Wide Grip)','Lat Pulldown (Underhand)','Lat Pulldown (Neutral)',
+        'Barbell Row','Pendlay Row','T-Bar Row','Chest Supported Row',
+        'Cable Row (Narrow)','Cable Row (Wide)','Single Arm Row (Dumbbell)','Meadows Row',
+        'Face Pull','Shrug (Barbell)','Shrug (Dumbbell)','Back Extension','Hyperextension',
+      ],
+      'Shoulders': [
+        'Overhead Press (Barbell)','Overhead Press (Dumbbell)','Shoulder Press (Machine)','Smith Machine Press',
+        'Arnold Press','Push Press','Z Press',
+        'Lateral Raise (Dumbbell)','Lateral Raise (Cable)','Lateral Raise (Machine)',
+        'Front Raise (Dumbbell)','Front Raise (Barbell)','Front Raise (Cable)','Front Raise (Plate)',
+        'Rear Delt Fly (Dumbbell)','Rear Delt Fly (Machine)','Rear Delt Fly (Cable)',
+        'Upright Row','Face Pull','Cable Lateral Raise','Band Pull Apart',
+      ],
+      'Arms': [
+        'Bicep Curl (Barbell)','Bicep Curl (Dumbbell)','Bicep Curl (EZ Bar)','Bicep Curl (Cable)',
+        'Hammer Curl','Hammer Curl (Cable)','Incline Dumbbell Curl',
+        'Preacher Curl','Preacher Curl (Machine)','Concentration Curl','Zottman Curl','Reverse Curl',
+        'Tricep Pushdown (Cable)','Tricep Pushdown (Rope)','Tricep Pushdown (V-Bar)',
+        'Skull Crusher (Barbell)','Skull Crusher (EZ Bar)','Skull Crusher (Dumbbell)',
+        'Overhead Tricep Extension (Dumbbell)','Overhead Tricep Extension (Cable)','Overhead Tricep Extension (EZ Bar)',
+        'Close Grip Bench Press','Dips','Weighted Dips','Tricep Kickback',
+      ],
+      'Legs': [
+        'Back Squat (Barbell)','Front Squat','Goblet Squat','Box Squat','Pause Squat',
+        'Hack Squat (Machine)','Leg Press','Leg Extension (Machine)',
+        'Bulgarian Split Squat','Lunge','Walking Lunge','Reverse Lunge','Step Up','Step Up (Weighted)',
+        'Romanian Deadlift','Romanian Deadlift (Dumbbell)','Stiff Leg Deadlift',
+        'Leg Curl (Machine)','Nordic Hamstring Curl','Good Morning',
+        'Hip Thrust (Barbell)','Hip Thrust (Dumbbell)','Hip Thrust (Machine)','Glute Bridge','Single Leg Glute Bridge',
+        'Hip Abductor (Machine)','Hip Adductor (Machine)','Cable Hip Abduction','Lateral Band Walk',
+        'Cable Kickback','Donkey Kick','Fire Hydrant',
+        'Calf Raise (Standing)','Calf Raise (Seated)','Calf Press on Leg Press','Donkey Calf Raise',
+      ],
+      'Core': [
+        'Plank','Side Plank','Hollow Body Hold',
+        'Crunch','Reverse Crunch','Bicycle Crunch','Decline Crunch','Weighted Crunch',
+        'Leg Raise (Hanging)','Leg Raise (Lying)','Toes to Bar','Knee to Chest (Hanging)',
+        'Ab Wheel','Cable Crunch','Kneeling Cable Crunch',
+        'Russian Twist','Woodchop (Cable)','Pallof Press',
+        'Dead Bug','Bird Dog','V-Up','Dragon Flag','L-Sit',
+      ],
+      'Full Body': [
+        'Clean and Jerk','Power Clean','Hang Clean','Clean Pull',
+        'Snatch','Power Snatch','Hang Snatch',
+        'Thruster','Push Jerk','Push Press','Split Jerk',
+        'Burpee','Box Jump','Broad Jump','Depth Jump',
+        'Farmer Walk','Suitcase Carry','Overhead Carry',
+        'Kettlebell Swing','Kettlebell Turkish Get Up','Kettlebell Clean and Press',
+        'Battle Ropes','Bear Complex','Man Maker',
+      ],
     };
     const EX_COLORS = { Chest:'bg-rose-100 text-rose-600', Back:'bg-blue-100 text-blue-600', Shoulders:'bg-purple-100 text-purple-600', Arms:'bg-orange-100 text-orange-600', Legs:'bg-green-100 text-green-600', Core:'bg-yellow-100 text-yellow-700', 'Full Body':'bg-slate-100 text-slate-600', Custom:'bg-slate-100 text-slate-500' };
 
@@ -1359,7 +1479,7 @@
       const addExercise = () => setPerf(p => ({...p, exercises: [...p.exercises, {name:'', muscleGroup:'', sets:[{weightKg:'',reps:''}]}]}));
       const updateExName = (i, val, group) => setPerf(p => { const ex=[...p.exercises.map(normEx)]; ex[i]={...ex[i],name:val,muscleGroup:group||ex[i].muscleGroup||''}; return {...p,exercises:ex}; });
       const removeEx = (i) => setPerf(p => ({...p, exercises: p.exercises.filter((_,idx)=>idx!==i)}));
-      const addSet = (i) => setPerf(p => { const ex=p.exercises.map(normEx); ex[i]={...ex[i],sets:[...ex[i].sets,{weightKg:'',reps:''}]}; return {...p,exercises:ex}; });
+      const addSet = (i) => setPerf(p => { const ex=p.exercises.map(normEx); const prev=ex[i].sets[ex[i].sets.length-1]||{weightKg:'',reps:''}; ex[i]={...ex[i],sets:[...ex[i].sets,{weightKg:prev.weightKg,reps:prev.reps}]}; return {...p,exercises:ex}; });
       const updateSet = (ei,si,field,val) => setPerf(p => { const ex=p.exercises.map(normEx); const sets=[...ex[ei].sets]; sets[si]={...sets[si],[field]:val}; ex[ei]={...ex[ei],sets}; return {...p,exercises:ex}; });
       const removeSet = (ei,si) => setPerf(p => { const ex=p.exercises.map(normEx); ex[ei]={...ex[ei],sets:ex[ei].sets.filter((_,idx)=>idx!==si)}; return {...p,exercises:ex}; });
       const exVolume = (ex) => { const n=normEx(ex); return n.sets.reduce((a,s)=>{const v=(Number(s.weightKg)||0)*(Number(s.reps)||0); return a+(v>0?v:0);},0); };
