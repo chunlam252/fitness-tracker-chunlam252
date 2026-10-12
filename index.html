@@ -709,9 +709,10 @@
 
                   if (selectedCategory === 'Gym') {
                     const normExT = (ex) => {
-                      if (ex.sets && Array.isArray(ex.sets)) return ex;
+                      const mg = ex.muscleGroup || findMuscleGroup(ex.name);
+                      if (ex.sets && Array.isArray(ex.sets)) return {...ex, muscleGroup: mg};
                       const count = Number(ex.sets)||1;
-                      return { name: ex.name, muscleGroup: ex.muscleGroup||'', sets: Array.from({length:count},()=>({weightKg:ex.weightKg||'',reps:ex.reps||''})) };
+                      return { name: ex.name, muscleGroup: mg, sets: Array.from({length:count},()=>({weightKg:ex.weightKg||'',reps:ex.reps||''})) };
                     };
 
                     // Build per-exercise history
@@ -719,7 +720,7 @@
                     perfLogs.forEach(l => {
                       (l.perf?.exercises||[]).map(normExT).forEach(ex => {
                         if (!ex.name) return;
-                        if (!exHistory[ex.name]) exHistory[ex.name] = { group: ex.muscleGroup||'', sessions: [] };
+                        if (!exHistory[ex.name]) exHistory[ex.name] = { group: ex.muscleGroup || findMuscleGroup(ex.name), sessions: [] };
                         const maxW = Math.max(...ex.sets.map(s=>Number(s.weightKg)||0));
                         if (maxW > 0) exHistory[ex.name].sessions.push({ date: l.date, maxW });
                         if (!exHistory[ex.name].group && ex.muscleGroup) exHistory[ex.name].group = ex.muscleGroup;
@@ -791,30 +792,37 @@
                                         </div>
                                       )}
                                     </div>
-                                    {/* Progress chart: max weight per session */}
-                                    {sessions.length > 0 && (
-                                      <div className="flex items-end gap-0.5 h-10">
-                                        {sessions.slice(-12).map((s,si,arr) => {
-                                          const isLatest = si === arr.length - 1;
-                                          const isPR = s.maxW === pr;
-                                          return (
-                                            <div key={si} className="flex-1 relative group/bar">
-                                              <div
-                                                className={`w-full rounded-t-sm transition-all ${isPR ? 'bg-amber-400' : isLatest ? 'bg-blue-500' : 'bg-blue-200'}`}
-                                                style={{height:`${Math.max(3,(s.maxW/maxW)*36)}px`}}
-                                              />
-                                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 bg-slate-800 text-white text-[8px] px-1.5 py-0.5 rounded opacity-0 group-hover/bar:opacity-100 whitespace-nowrap z-10 pointer-events-none">
-                                                {s.maxW}kg · {s.date.slice(5).replace('-','/')}
-                                                {isPR ? ' 🏆' : ''}
-                                              </div>
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
-                                    )}
-                                    {sessions.length === 1 && (
-                                      <div className="text-[9px] text-slate-400 mt-1">記錄多次後可睇到進步趨勢 📈</div>
-                                    )}
+                                    {/* SVG Line Chart */}
+                                    {sessions.length > 0 && (() => {
+                                      const data = sessions.slice(-12);
+                                      if (data.length === 1) return <div className="text-[9px] text-slate-400 mt-1 pb-1">記錄多次後可睇到進步趨勢 📈</div>;
+                                      const W=300, H=72, padT=8, padB=20, padL=4, padR=38;
+                                      const plotW=W-padL-padR, plotH=H-padT-padB;
+                                      const vals=data.map(s=>s.maxW);
+                                      const minV=Math.min(...vals), maxV=Math.max(...vals), rng=maxV-minV||1;
+                                      const px=(i)=>padL+(i/(data.length-1))*plotW;
+                                      const py=(v)=>padT+plotH-((v-minV)/rng)*plotH;
+                                      const pathD=data.map((s,i)=>`${i===0?'M':'L'}${px(i).toFixed(1)},${py(s.maxW).toFixed(1)}`).join(' ');
+                                      const areaD=`${pathD} L${px(data.length-1).toFixed(1)},${(padT+plotH).toFixed(1)} L${padL},${(padT+plotH).toFixed(1)} Z`;
+                                      const prIdx=vals.indexOf(maxV);
+                                      return (
+                                        <svg viewBox={`0 0 ${W} ${H}`} className="w-full mt-1" style={{height:`${H}px`}}>
+                                          <path d={areaD} fill="#6366f1" fillOpacity="0.07"/>
+                                          <path d={pathD} fill="none" stroke="#6366f1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                          {data.map((s,i)=>(
+                                            <circle key={i} cx={px(i)} cy={py(s.maxW)} r={i===prIdx?4.5:3}
+                                              fill={i===prIdx?'#f59e0b':'white'}
+                                              stroke={i===prIdx?'#f59e0b':'#6366f1'}
+                                              strokeWidth="2"/>
+                                          ))}
+                                          <text x={W-2} y={padT+4} fontSize="8" fill="#94a3b8" textAnchor="end">{maxV}kg</text>
+                                          {minV<maxV && <text x={W-2} y={padT+plotH+1} fontSize="8" fill="#94a3b8" textAnchor="end">{minV}kg</text>}
+                                          <text x={padL} y={H-2} fontSize="7.5" fill="#94a3b8" textAnchor="start">{data[0].date.slice(5).replace('-','/')}</text>
+                                          <text x={px(data.length-1)} y={H-2} fontSize="7.5" fill="#94a3b8" textAnchor="end">{data[data.length-1].date.slice(5).replace('-','/')}</text>
+                                          {prIdx!==0&&prIdx!==data.length-1&&<text x={px(prIdx)} y={padT-1} fontSize="7.5" fill="#f59e0b" textAnchor="middle">🏆</text>}
+                                        </svg>
+                                      );
+                                    })()}
                                   </div>
                                 );
                               })}
@@ -1318,6 +1326,19 @@
       ],
     };
     const EX_COLORS = { Chest:'bg-rose-100 text-rose-600', Back:'bg-blue-100 text-blue-600', Shoulders:'bg-purple-100 text-purple-600', Arms:'bg-orange-100 text-orange-600', Legs:'bg-green-100 text-green-600', Core:'bg-yellow-100 text-yellow-700', 'Full Body':'bg-slate-100 text-slate-600', Custom:'bg-slate-100 text-slate-500' };
+
+    // Auto-detect muscle group from exercise name (strips parentheses for fuzzy match)
+    const findMuscleGroup = (name) => {
+      if (!name) return '';
+      const base = name.toLowerCase().replace(/\s*\([^)]*\)/g, '').trim();
+      for (const [group, exercises] of Object.entries(EXERCISE_DB)) {
+        if (exercises.some(e => {
+          const eb = e.toLowerCase().replace(/\s*\([^)]*\)/g, '').trim();
+          return eb === base || eb.includes(base) || base.includes(eb);
+        })) return group;
+      }
+      return '';
+    };
 
     // Muscle group SVG icons — body silhouette with highlighted area
     const MuscleSvg = ({ group, size = 40 }) => {
