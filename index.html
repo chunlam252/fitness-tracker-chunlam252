@@ -1199,6 +1199,52 @@
     };
     const EX_COLORS = { Chest:'bg-rose-100 text-rose-600', Back:'bg-blue-100 text-blue-600', Shoulders:'bg-purple-100 text-purple-600', Arms:'bg-orange-100 text-orange-600', Legs:'bg-green-100 text-green-600', Core:'bg-yellow-100 text-yellow-700', 'Full Body':'bg-slate-100 text-slate-600', Custom:'bg-slate-100 text-slate-500' };
 
+    // Muscle group SVG icons — body silhouette with highlighted area
+    const MuscleSvg = ({ group, size = 40 }) => {
+      const base = '#dde3ed';
+      const hl = { Chest:'#f43f5e', Back:'#3b82f6', Shoulders:'#a855f7', Arms:'#f97316', Legs:'#22c55e', Core:'#eab308', 'Full Body':'#64748b', Custom:'#94a3b8' };
+      const color = hl[group] || '#94a3b8';
+      // Body parts: head, torso, left arm, right arm, left leg, right leg
+      // Each group highlights different parts
+      const torsoFill    = ['Chest','Back','Core','Full Body'].includes(group) ? color : base;
+      const chestOpacity = group === 'Chest' ? 1 : 0;
+      const backOpacity  = group === 'Back'  ? 1 : 0;
+      const coreOpacity  = group === 'Core'  ? 1 : 0;
+      const lArmFill     = ['Arms','Shoulders','Full Body'].includes(group) ? color : base;
+      const rArmFill     = lArmFill;
+      const shoulderFill = ['Shoulders','Full Body'].includes(group) ? color : base;
+      const legFill      = ['Legs','Full Body'].includes(group) ? color : base;
+      return (
+        <svg viewBox="0 0 36 50" xmlns="http://www.w3.org/2000/svg" width={size} height={size} style={{flexShrink:0}}>
+          {/* Head */}
+          <circle cx="18" cy="5.5" r="4.5" fill={base}/>
+          {/* Shoulders */}
+          <ellipse cx="9" cy="13" rx="4.5" ry="3" fill={shoulderFill}/>
+          <ellipse cx="27" cy="13" rx="4.5" ry="3" fill={shoulderFill}/>
+          {/* Torso */}
+          <rect x="11" y="11" width="14" height="17" rx="3" fill={base}/>
+          {/* Chest highlight */}
+          {group === 'Chest' && <rect x="11" y="11" width="14" height="9" rx="3" fill={color}/>}
+          {/* Back highlight (spine line) */}
+          {group === 'Back' && <rect x="11" y="11" width="14" height="17" rx="3" fill={color} opacity="0.85"/>}
+          {group === 'Back' && <rect x="16" y="11" width="4" height="17" rx="2" fill="#1d4ed8" opacity="0.5"/>}
+          {/* Core highlight */}
+          {group === 'Core' && <rect x="12" y="19" width="12" height="9" rx="2" fill={color}/>}
+          {/* Full body subtle overlay */}
+          {group === 'Full Body' && <rect x="11" y="11" width="14" height="17" rx="3" fill={color} opacity="0.6"/>}
+          {/* Arms */}
+          <rect x="5"  y="13" width="5" height="14" rx="2.5" fill={lArmFill}/>
+          <rect x="26" y="13" width="5" height="14" rx="2.5" fill={rArmFill}/>
+          {/* Forearms */}
+          <rect x="5"  y="28" width="5" height="10" rx="2" fill={['Arms','Full Body'].includes(group) ? color : base}/>
+          <rect x="26" y="28" width="5" height="10" rx="2" fill={['Arms','Full Body'].includes(group) ? color : base}/>
+          {/* Legs */}
+          <rect x="11" y="29" width="6" height="19" rx="3" fill={legFill}/>
+          <rect x="19" y="29" width="6" height="19" rx="3" fill={legFill}/>
+        </svg>
+      );
+    };
+
     const ExercisePicker = ({ onSelect, onClose }) => {
       const [search, setSearch] = React.useState('');
       const [filterGroup, setFilterGroup] = React.useState('All');
@@ -1229,9 +1275,12 @@
             </div>
             <div className="overflow-y-auto flex-1 px-5 pb-10">
               {filtered.map((ex,i) => (
-                <button key={i} onClick={()=>onSelect(ex.name, ex.group)} className="w-full flex items-center justify-between py-3.5 border-b border-slate-50 active:bg-slate-50 text-left">
-                  <span className="text-sm font-bold text-slate-800">{ex.name}</span>
-                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg flex-shrink-0 ml-2 ${EX_COLORS[ex.group]||'bg-slate-100 text-slate-500'}`}>{ex.group}</span>
+                <button key={i} onClick={()=>onSelect(ex.name, ex.group)} className="w-full flex items-center gap-3 py-2.5 border-b border-slate-50 active:bg-slate-50 text-left">
+                  <MuscleSvg group={ex.group} size={38}/>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-bold text-slate-800 leading-tight">{ex.name}</div>
+                    <div className={`text-[10px] font-black mt-0.5 inline-block px-1.5 py-0.5 rounded-md ${EX_COLORS[ex.group]||'bg-slate-100 text-slate-500'}`}>{ex.group}</div>
+                  </div>
                 </button>
               ))}
               {filtered.length === 0 && (
@@ -1602,9 +1651,12 @@
                         <div key={i} className="bg-slate-50 rounded-2xl p-3 space-y-2">
                           {/* Exercise name row */}
                           <div className="flex gap-2 items-center">
-                            <button type="button" onClick={()=>{setExPickerIdx(i);setShowExPicker(true);}} className="flex-1 flex items-center gap-2 p-2.5 bg-white rounded-xl border border-slate-100 text-left active:scale-98 transition-transform">
-                              <span className="text-sm font-bold text-slate-800 flex-1">{ex.name || <span className="text-slate-300">選擇 / 輸入動作名稱</span>}</span>
-                              {ex.muscleGroup && <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-md flex-shrink-0 ${EX_COLORS[ex.muscleGroup]||'bg-slate-100 text-slate-500'}`}>{ex.muscleGroup}</span>}
+                            <button type="button" onClick={()=>{setExPickerIdx(i);setShowExPicker(true);}} className="flex-1 flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-100 text-left active:scale-98 transition-transform">
+                              {ex.muscleGroup ? <MuscleSvg group={ex.muscleGroup} size={32}/> : <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-300 text-lg flex-shrink-0">＋</div>}
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-bold text-slate-800 truncate">{ex.name || <span className="text-slate-300">選擇動作</span>}</div>
+                                {ex.muscleGroup && <div className={`text-[9px] font-black px-1.5 py-0.5 rounded-md inline-block mt-0.5 ${EX_COLORS[ex.muscleGroup]||'bg-slate-100 text-slate-500'}`}>{ex.muscleGroup}</div>}
+                              </div>
                               <span className="text-slate-300 text-xs flex-shrink-0">▼</span>
                             </button>
                             <button type="button" onClick={()=>removeEx(i)} className="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-red-400 font-bold text-lg flex-shrink-0">✕</button>
