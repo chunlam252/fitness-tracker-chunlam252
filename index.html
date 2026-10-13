@@ -24,12 +24,26 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <style>
+    html {
+      height: 100%;
+      overflow: hidden;
+    }
     body {
       font-family: 'Inter', sans-serif;
       background-color: #f8fafc;
       -webkit-tap-highlight-color: transparent;
-      overscroll-behavior-y: none;
-      overscroll-behavior-x: none;
+      overscroll-behavior: none;
+      /* iOS Safari viewport fix: lock body so content can't scroll behind address bar */
+      height: 100%;
+      overflow: hidden;
+      position: fixed;
+      width: 100%;
+      top: 0;
+      left: 0;
+    }
+    #root {
+      height: var(--app-height, 100%);
+      overflow: hidden;
     }
     .custom-scrollbar::-webkit-scrollbar { width: 4px; }
     .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
@@ -362,7 +376,7 @@
     const Layout = ({ children, activeView, setView, user, status, onAuth }) => {
       const [showPlusMenu, setShowPlusMenu] = React.useState(false);
       return (
-        <div className="flex flex-col h-[100dvh] max-w-md mx-auto bg-white shadow-2xl relative overflow-hidden border-x border-slate-100">
+        <div className="flex flex-col h-full max-w-md mx-auto bg-white shadow-2xl relative overflow-hidden border-x border-slate-100">
           <header className="px-6 pb-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0 safe-area-pt">
             <div>
               <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
@@ -615,6 +629,7 @@
       const [filter, setFilter] = useState('month'); // 'all', 'month', 'year'
       const [selectedCategory, setSelectedCategory] = useState(null);
       const [viewMonth, setViewMonth] = useState(new Date());
+      const [gymMuscleGroup, setGymMuscleGroup] = useState('Chest');
 
       // Filter Logic for Breakdown and Totals
       const now = new Date();
@@ -715,18 +730,28 @@
                       return { name: ex.name, muscleGroup: mg, sets: Array.from({length:count},()=>({weightKg:ex.weightKg||'',reps:ex.reps||''})) };
                     };
 
-                    // Build per-exercise history
+                    // Build per-exercise history — deduplicate by date (keep max weight per day)
                     const exHistory = {};
                     perfLogs.forEach(l => {
                       (l.perf?.exercises||[]).map(normExT).forEach(ex => {
                         if (!ex.name) return;
-                        if (!exHistory[ex.name]) exHistory[ex.name] = { group: ex.muscleGroup || findMuscleGroup(ex.name), sessions: [] };
+                        const grp = ex.muscleGroup || findMuscleGroup(ex.name);
+                        if (!exHistory[ex.name]) exHistory[ex.name] = { group: grp, byDate: {} };
                         const maxW = Math.max(...ex.sets.map(s=>Number(s.weightKg)||0));
-                        if (maxW > 0) exHistory[ex.name].sessions.push({ date: l.date, maxW });
-                        if (!exHistory[ex.name].group && ex.muscleGroup) exHistory[ex.name].group = ex.muscleGroup;
+                        if (maxW > 0) {
+                          // Per date: keep only the heaviest weight (handles drop sets / multiple sessions same day)
+                          if (!exHistory[ex.name].byDate[l.date] || maxW > exHistory[ex.name].byDate[l.date])
+                            exHistory[ex.name].byDate[l.date] = maxW;
+                        }
+                        if (!exHistory[ex.name].group && grp) exHistory[ex.name].group = grp;
                       });
                     });
-                    Object.values(exHistory).forEach(e => e.sessions.sort((a,b)=>a.date.localeCompare(b.date)));
+                    // Convert byDate → sorted sessions array
+                    Object.values(exHistory).forEach(e => {
+                      e.sessions = Object.entries(e.byDate)
+                        .sort(([a],[b]) => a.localeCompare(b))
+                        .map(([date, maxW]) => ({ date, maxW }));
+                    });
 
                     // Group by muscle group
                     const GROUP_ORDER = ['Chest','Back','Shoulders','Arms','Legs','Core','Full Body'];
@@ -737,6 +762,8 @@
                       byGroup[g].push({ name, sessions: data.sessions });
                     });
                     const groupsWithData = [...GROUP_ORDER, 'Other'].filter(g => byGroup[g]);
+                    // Default to first group with data if current selection has none
+                    const activeGroup = byGroup[gymMuscleGroup] ? gymMuscleGroup : (groupsWithData[0] || 'Chest');
 
                     // Total volume per session
                     const volSessions = perfLogs.slice(-8).map(l => ({
@@ -763,16 +790,30 @@
                           </div>
                         )}
 
-                        {/* By Muscle Group with Progress Charts */}
-                        {groupsWithData.length > 0 ? groupsWithData.map(group => (
-                          <div key={group} className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+                        {/* Body Part Chip Selector */}
+                        {groupsWithData.length > 0 && (
+                          <div className="flex gap-2 overflow-x-auto pb-1" style={{scrollbarWidth:'none'}}>
+                            {groupsWithData.map(g => (
+                              <button key={g} onClick={()=>setGymMuscleGroup(g)}
+                                className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-2xl text-xs font-black transition-all ${activeGroup===g ? 'bg-slate-900 text-white shadow-lg' : 'bg-white text-slate-500 border border-slate-200'}`}>
+                                <MuscleSvg group={g} size={20}/>
+                                <span>{g}</span>
+                                <span className={`text-[9px] ${activeGroup===g?'text-slate-300':'text-slate-400'}`}>{byGroup[g].length}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Exercises for selected group */}
+                        {groupsWithData.length > 0 ? (
+                          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
                             <div className="flex items-center gap-3 px-5 py-3.5 bg-slate-50 border-b border-slate-100">
-                              <MuscleSvg group={group} size={30}/>
-                              <span className="text-sm font-black text-slate-700">{group}</span>
-                              <span className="text-[10px] font-bold text-slate-400 ml-auto">{byGroup[group].length} 個動作</span>
+                              <MuscleSvg group={activeGroup} size={30}/>
+                              <span className="text-sm font-black text-slate-700">{activeGroup}</span>
+                              <span className="text-[10px] font-bold text-slate-400 ml-auto">{(byGroup[activeGroup]||[]).length} 個動作</span>
                             </div>
                             <div className="divide-y divide-slate-50">
-                              {byGroup[group].map(({name, sessions}) => {
+                              {(byGroup[activeGroup]||[]).map(({name, sessions}) => {
                                 const pr = sessions.length ? Math.max(...sessions.map(s=>s.maxW)) : 0;
                                 const first = sessions[0], last = sessions[sessions.length-1];
                                 const gained = sessions.length >= 2 ? last.maxW - first.maxW : null;
@@ -828,7 +869,7 @@
                               })}
                             </div>
                           </div>
-                        )) : (
+                        ) : (
                           <div className="text-center py-10 text-slate-400">
                             <div className="text-3xl mb-2">💪</div>
                             <div className="text-sm font-bold">尚未有成績紀錄</div>
@@ -2551,6 +2592,20 @@
 
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<App />);
+
+    // iOS Safari viewport fix: keep --app-height in sync with actual visible area
+    (function() {
+      function setAppHeight() {
+        const h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+        document.documentElement.style.setProperty('--app-height', h + 'px');
+      }
+      setAppHeight();
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', setAppHeight);
+      } else {
+        window.addEventListener('resize', setAppHeight);
+      }
+    })();
   </script>
 <script type="module" src="/index.tsx"></script>
 </body>
