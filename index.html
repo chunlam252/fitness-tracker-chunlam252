@@ -33,13 +33,9 @@
       background-color: #f8fafc;
       -webkit-tap-highlight-color: transparent;
       overscroll-behavior: none;
-      /* iOS Safari viewport fix: lock body so content can't scroll behind address bar */
+      /* iOS Safari viewport fix */
       height: 100%;
       overflow: hidden;
-      position: fixed;
-      width: 100%;
-      top: 0;
-      left: 0;
     }
     #root {
       height: var(--app-height, 100%);
@@ -1427,15 +1423,33 @@
       );
     };
 
+    const CUSTOM_EX_KEY = 'fittrack_custom_ex';
+
     const ExercisePicker = ({ onSelect, onClose }) => {
       const [search, setSearch] = React.useState('');
       const [filterGroup, setFilterGroup] = React.useState('All');
-      const groups = ['All', ...Object.keys(EXERCISE_DB)];
-      const filtered = Object.entries(EXERCISE_DB)
+      const [customExs, setCustomExs] = React.useState(() => {
+        try { return JSON.parse(localStorage.getItem(CUSTOM_EX_KEY) || '[]'); } catch { return []; }
+      });
+
+      const saveCustom = (name) => {
+        const updated = [...new Set([name, ...customExs])]; // most recent first
+        setCustomExs(updated);
+        localStorage.setItem(CUSTOM_EX_KEY, JSON.stringify(updated));
+        onSelect(name, 'Custom');
+      };
+
+      const groups = ['All', ...Object.keys(EXERCISE_DB), ...(customExs.length > 0 ? ['自訂'] : [])];
+      const dbItems = Object.entries(EXERCISE_DB)
         .filter(([g]) => filterGroup === 'All' || g === filterGroup)
-        .flatMap(([g, exs]) => exs.map(name => ({ name, group: g })))
-        .filter(ex => !search || ex.name.toLowerCase().includes(search.toLowerCase()))
-        .sort((a,b) => a.name.localeCompare(b.name));
+        .flatMap(([g, exs]) => exs.map(name => ({ name, group: g })));
+      const customItems = (filterGroup === 'All' || filterGroup === '自訂')
+        ? customExs.map(name => ({ name, group: 'Custom' }))
+        : [];
+      const filtered = [...customItems, ...dbItems]
+        .filter(ex => !search || ex.name.toLowerCase().includes(search.toLowerCase()));
+      if (!search) filtered.sort((a,b) => a.group==='Custom'&&b.group!=='Custom'?-1:b.group==='Custom'&&a.group!=='Custom'?1:a.name.localeCompare(b.name));
+
       return (
         <div className="fixed inset-0 z-50 flex flex-col justify-end" style={{background:'rgba(0,0,0,0.55)'}}>
           <div className="bg-white rounded-t-3xl flex flex-col" style={{maxHeight:'88vh'}}>
@@ -1457,11 +1471,11 @@
             </div>
             <div className="overflow-y-auto flex-1 px-5 pb-10">
               {filtered.map((ex,i) => (
-                <button key={i} onClick={()=>onSelect(ex.name, ex.group)} className="w-full flex items-center gap-3 py-2.5 border-b border-slate-50 active:bg-slate-50 text-left">
+                <button key={i} onClick={()=>ex.group==='Custom'?saveCustom(ex.name):onSelect(ex.name, ex.group)} className="w-full flex items-center gap-3 py-2.5 border-b border-slate-50 active:bg-slate-50 text-left">
                   <MuscleSvg group={ex.group} size={38}/>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-bold text-slate-800 leading-tight">{ex.name}</div>
-                    <div className={`text-[10px] font-black mt-0.5 inline-block px-1.5 py-0.5 rounded-md ${EX_COLORS[ex.group]||'bg-slate-100 text-slate-500'}`}>{ex.group}</div>
+                    <div className={`text-[10px] font-black mt-0.5 inline-block px-1.5 py-0.5 rounded-md ${EX_COLORS[ex.group]||'bg-slate-100 text-slate-500'}`}>{ex.group === 'Custom' ? '自訂' : ex.group}</div>
                   </div>
                 </button>
               ))}
@@ -1469,7 +1483,7 @@
                 <div className="text-center py-10 text-slate-400">
                   <div className="text-3xl mb-2">🤔</div>
                   <div className="font-bold text-sm mb-3">找不到「{search}」</div>
-                  {search && <button onClick={()=>onSelect(search,'Custom')} className="text-blue-500 font-black text-sm">＋ 用「{search}」作自訂動作</button>}
+                  {search && <button onClick={()=>saveCustom(search)} className="text-blue-500 font-black text-sm">＋ 加「{search}」為自訂動作（下次仲記得）</button>}
                 </div>
               )}
             </div>
@@ -1512,6 +1526,22 @@
       const [photo, setPhoto] = useState(initData?.photo || null);
       const [showExPicker, setShowExPicker] = useState(false);
       const [exPickerIdx, setExPickerIdx] = useState(null);
+      const [useLbs, setUseLbs] = useState(false);
+
+      // Look up the most recent weight logged for an exercise before the current form date
+      const getLastWeight = (exName) => {
+        if (!exName || !logs) return null;
+        const formDate = data.date;
+        for (let i = logs.length - 1; i >= 0; i--) {
+          if (logs[i].date >= formDate) continue;
+          const found = (logs[i].perf?.exercises || []).map(normEx).find(e => e.name === exName);
+          if (found) {
+            const maxW = Math.max(...found.sets.map(s => Number(s.weightKg) || 0));
+            if (maxW > 0) return maxW;
+          }
+        }
+        return null;
+      };
 
       const compressPhoto = (file) => new Promise(resolve => {
         const reader = new FileReader();
@@ -1827,8 +1857,18 @@
               <div className="px-5 pb-5 space-y-4 border-t border-slate-50 pt-4">
                 {(data.category === 'Gym') && (
                   <div className="space-y-3">
+                    {/* LB/KG toggle */}
+                    <div className="flex items-center justify-end gap-2">
+                      <span className="text-[10px] font-black text-slate-400">重量單位</span>
+                      <button type="button" onClick={()=>setUseLbs(v=>!v)}
+                        className={`flex items-center rounded-full text-[10px] font-black transition-all px-1 py-0.5 gap-0.5 border ${useLbs?'bg-orange-50 border-orange-200':'bg-slate-100 border-slate-200'}`}>
+                        <span className={`px-2 py-0.5 rounded-full transition-all ${!useLbs?'bg-white text-slate-800 shadow-sm':'text-slate-400'}`}>KG</span>
+                        <span className={`px-2 py-0.5 rounded-full transition-all ${useLbs?'bg-orange-500 text-white shadow-sm':'text-slate-400'}`}>LB</span>
+                      </button>
+                    </div>
                     {perf.exercises.map(normEx).map((ex, i) => {
                       const vol = exVolume(ex);
+                      const lastW = getLastWeight(ex.name);
                       return (
                         <div key={i} className="bg-slate-50 rounded-2xl p-3 space-y-2">
                           {/* Exercise name row */}
@@ -1841,34 +1881,46 @@
                               </div>
                               <span className="text-slate-300 text-xs flex-shrink-0">▼</span>
                             </button>
+                            {/* Last session weight reference */}
+                            {lastW && (
+                              <div className="flex flex-col items-center flex-shrink-0 px-2">
+                                <div className="text-[8px] font-bold text-slate-400 leading-tight">上次</div>
+                                <div className="text-[11px] font-black text-indigo-500 leading-tight">
+                                  {useLbs ? (lastW / 0.453592).toFixed(0) + 'lb' : lastW + 'kg'}
+                                </div>
+                              </div>
+                            )}
                             <button type="button" onClick={()=>removeEx(i)} className="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-red-400 font-bold text-lg flex-shrink-0">✕</button>
                           </div>
                           {/* Sets table */}
                           <div className="space-y-1">
                             <div className="grid grid-cols-[28px_1fr_1fr_28px] gap-1 px-1">
                               <div className="text-[9px] font-black text-slate-400 text-center">組</div>
-                              <div className="text-[9px] font-black text-slate-400 text-center">重量 (kg)</div>
+                              <div className="text-[9px] font-black text-slate-400 text-center">重量 ({useLbs?'lb':'kg'})</div>
                               <div className="text-[9px] font-black text-slate-400 text-center">次數</div>
                               <div></div>
                             </div>
                             {ex.sets.map((s,si) => (
                               <div key={si} className="grid grid-cols-[28px_1fr_1fr_28px] gap-1 items-center">
                                 <div className="text-[10px] font-black text-slate-400 text-center">{si+1}</div>
-                                <input type="number" value={s.weightKg} onChange={e=>updateSet(i,si,'weightKg',e.target.value)} placeholder="—" className="p-2 bg-white rounded-xl text-sm font-bold text-slate-800 border border-slate-100 text-center outline-none w-full" />
-                                <input type="number" value={s.reps} onChange={e=>updateSet(i,si,'reps',e.target.value)} placeholder="—" className="p-2 bg-white rounded-xl text-sm font-bold text-slate-800 border border-slate-100 text-center outline-none w-full" />
+                                <div>
+                                  <input type="number" inputMode="decimal" value={s.weightKg} onChange={e=>updateSet(i,si,'weightKg',e.target.value)} placeholder="—" className="p-2 bg-white rounded-xl text-sm font-bold text-slate-800 border border-slate-100 text-center outline-none w-full" />
+                                  {useLbs && s.weightKg ? <div className="text-[8px] text-slate-400 text-center mt-0.5">{(Number(s.weightKg)*0.453592).toFixed(1)}kg</div> : null}
+                                </div>
+                                <input type="number" inputMode="numeric" value={s.reps} onChange={e=>updateSet(i,si,'reps',e.target.value)} placeholder="—" className="p-2 bg-white rounded-xl text-sm font-bold text-slate-800 border border-slate-100 text-center outline-none w-full" />
                                 <button type="button" onClick={()=>removeSet(i,si)} className="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-red-400 font-bold text-sm">{ex.sets.length>1?'✕':''}</button>
                               </div>
                             ))}
                           </div>
                           <div className="flex items-center justify-between pt-1">
                             <button type="button" onClick={()=>addSet(i)} className="text-[11px] font-black text-blue-500 active:scale-95">＋ 加 Set</button>
-                            {vol > 0 && <div className="text-[10px] font-black text-blue-500">Volume: {vol.toLocaleString()} kg</div>}
+                            {vol > 0 && <div className="text-[10px] font-black text-blue-500">Volume: {useLbs?(vol*0.453592).toFixed(0):vol.toLocaleString()} {useLbs?'lb·reps':'kg'}</div>}
                           </div>
                         </div>
                       );
                     })}
                     <button type="button" onClick={addExercise} className="w-full py-2.5 border-2 border-dashed border-slate-200 rounded-2xl text-sm font-bold text-slate-400 active:scale-95 transition-transform">＋ 加動作</button>
-                    {totalVolume > 0 && <div className="text-center text-sm font-black text-slate-700 bg-slate-50 py-2 rounded-xl">總 Volume：{totalVolume.toLocaleString()} kg</div>}
+                    {totalVolume > 0 && <div className="text-center text-sm font-black text-slate-700 bg-slate-50 py-2 rounded-xl">總 Volume：{useLbs?(totalVolume*0.453592).toFixed(0):totalVolume.toLocaleString()} {useLbs?'lb·reps':'kg'}</div>}
                   </div>
                 )}
                 {(data.category === '跑步') && (
@@ -1897,7 +1949,17 @@
             )}
           </div>
 
-          <button onClick={()=>onSave({...data, id:initData?.id||Date.now().toString(), perf: showPerf ? perf : undefined, photo: photo||undefined})} className={`w-full py-4 text-white rounded-2xl font-black shadow-xl transform active:scale-95 transition-all ${isPlanned ? 'bg-slate-500 shadow-slate-200' : 'bg-slate-900 shadow-slate-300'}`}>
+          <button onClick={()=>{
+            // If using LB, convert all exercise weights to KG before saving
+            const savePerf = (showPerf && useLbs && perf.exercises.length > 0) ? {
+              ...perf,
+              exercises: perf.exercises.map(ex => {
+                const n = normEx(ex);
+                return {...n, sets: n.sets.map(s => ({...s, weightKg: s.weightKg ? (Number(s.weightKg)*0.453592).toFixed(1) : ''}))};
+              })
+            } : (showPerf ? perf : undefined);
+            onSave({...data, id:initData?.id||Date.now().toString(), perf: savePerf, photo: photo||undefined});
+          }} className={`w-full py-4 text-white rounded-2xl font-black shadow-xl transform active:scale-95 transition-all ${isPlanned ? 'bg-slate-500 shadow-slate-200' : 'bg-slate-900 shadow-slate-300'}`}>
               {isPlanned ? '📅 儲存計劃' : '✅ 完成打卡'}
           </button>
 
