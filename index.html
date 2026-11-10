@@ -211,19 +211,19 @@
                 Respond in Traditional Chinese (HK style). Be concise, encouraging, and professional.
               `;
               
-              const key = getGeminiKey(); if (!key) { setAdvice('請先在設定填入 Gemini API Key'); return; }
+              const key = getGeminiKey(); if (!key) { setChatMessages(prev => [...prev, { role: 'ai', text: '請先在設定填入 Gemini API Key' }]); setIsChatting(false); return; }
               const ai = new GoogleGenAI({ apiKey: key });
               let responseText = "";
               try {
                   const response = await ai.models.generateContent({
-                      model: "gemini-2.0-flash-exp",
+                      model: "gemini-2.0-flash",
                       contents: prompt,
                   });
                   responseText = response.text;
               } catch (fallbackErr) {
                   console.warn("Fallback model used", fallbackErr);
                   const responseFallback = await ai.models.generateContent({
-                      model: "gemini-flash-latest",
+                      model: "gemini-1.5-flash",
                       contents: prompt,
                   });
                   responseText = responseFallback.text;
@@ -1485,7 +1485,7 @@
             const ai = new GoogleGenAI({ apiKey: key });
             const prompt = `For the gym exercise "${exercise.name}" (${exercise.group} group), reply ONLY with valid JSON (no markdown):
 {"zhName":"Chinese name","muscles":["muscle1","muscle2"],"howTo":"2-3 sentences how to perform correctly in Traditional Chinese","tip":"one common mistake in Traditional Chinese"}`;
-            const res = await ai.models.generateContent({ model:'gemini-2.0-flash-exp', contents: prompt });
+            const res = await ai.models.generateContent({ model:'gemini-2.0-flash', contents: prompt });
             const text = res.text.replace(/```json\n?|\n?```|```/g,'').trim();
             const data = JSON.parse(text);
             sessionStorage.setItem(cacheKey, JSON.stringify(data));
@@ -2666,24 +2666,22 @@
             let adviceText = "";
             
             try {
-              // Try the Experimental (2.0) Model first as requested
               const response = await ai.models.generateContent({
-                model: "gemini-2.0-flash-exp", 
+                model: "gemini-2.0-flash",
                 contents: prompt,
               });
               adviceText = response.text;
             } catch (e) {
-              console.warn("2.0 Flash failed, retrying with Stable Flash...", e);
-              // Fallback to Stable Flash (1.5)
+              console.warn("gemini-2.0-flash failed, trying 1.5-flash...", e);
               try {
                   const response = await ai.models.generateContent({
-                    model: "gemini-flash-latest", 
+                    model: "gemini-1.5-flash",
                     contents: prompt,
                   });
                   adviceText = response.text;
               } catch (e2) {
-                  console.error("All AI models failed", e2);
-                  setAiAdvice("連線不穩定，請稍後再試 (Model Error)");
+                  console.error("All AI models failed:", e2);
+                  setAiAdvice(`❌ AI 錯誤: ${e2.message || e2}`);
                   return;
               }
             }
