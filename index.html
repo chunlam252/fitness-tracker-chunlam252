@@ -111,7 +111,8 @@
     import { GoogleGenAI } from "@google/genai";
     import { parse } from "marked";
 
-    const GEMINI_API_KEY = "AQ.Ab8RN6LyZDPmbeh8ceNRWLpftWZSjCjIhWfYuVraFwbOTiqzbA";
+    const GEMINI_API_KEY_STORAGE = 'fittrack_gemini_key';
+    const getGeminiKey = () => localStorage.getItem(GEMINI_API_KEY_STORAGE) || '';
 
     const CATEGORIES = [
       { value: 'Gym', subcategories: ['功能性訓練', '重量訓練', '帶氧運動', 'HIIT', '伸展'], color: 'bg-blue-500', text: 'text-blue-500', icon: '💪' },
@@ -210,7 +211,8 @@
                 Respond in Traditional Chinese (HK style). Be concise, encouraging, and professional.
               `;
               
-              const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+              const key = getGeminiKey(); if (!key) { setAdvice('請先在設定填入 Gemini API Key'); return; }
+              const ai = new GoogleGenAI({ apiKey: key });
               let responseText = "";
               try {
                   const response = await ai.models.generateContent({
@@ -1477,7 +1479,8 @@
         } catch {}
         (async () => {
           try {
-            const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+            const key = getGeminiKey(); if (!key) { setInfo({ zhName:'', muscles:[exercise.group], howTo:'請先在設定填入 Gemini API Key', tip:'' }); setLoading(false); return; }
+            const ai = new GoogleGenAI({ apiKey: key });
             const prompt = `For the gym exercise "${exercise.name}" (${exercise.group} group), reply ONLY with valid JSON (no markdown):
 {"zhName":"Chinese name","muscles":["muscle1","muscle2"],"howTo":"2-3 sentences how to perform correctly in Traditional Chinese","tip":"one common mistake in Traditional Chinese"}`;
             const res = await ai.models.generateContent({ model:'gemini-2.0-flash-exp', contents: prompt });
@@ -2271,6 +2274,14 @@
     };
 
     const Settings = ({ user, handleAuth, setView }) => {
+       const [geminiKey, setGeminiKey] = React.useState(() => localStorage.getItem(GEMINI_API_KEY_STORAGE) || '');
+       const [keySaved, setKeySaved] = React.useState(false);
+       const saveKey = () => {
+         localStorage.setItem(GEMINI_API_KEY_STORAGE, geminiKey.trim());
+         setKeySaved(true);
+         setTimeout(() => setKeySaved(false), 2000);
+       };
+
        const handleDownload = async () => {
            try {
                const res = await fetch(window.location.href);
@@ -2305,6 +2316,27 @@
              </button>
            </div>
            
+           {/* Gemini API Key */}
+           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 space-y-4">
+             <div>
+               <h3 className="font-bold text-slate-800 mb-1">🤖 AI 教練 (Gemini API Key)</h3>
+               <p className="text-xs text-slate-400">Key 只存在你手機本地，唔會上傳到任何地方。從 <a href="https://aistudio.google.com/apikey" target="_blank" className="text-blue-500 underline">Google AI Studio</a> 免費獲取。</p>
+             </div>
+             <div className="flex gap-2">
+               <input
+                 type="password"
+                 value={geminiKey}
+                 onChange={e => setGeminiKey(e.target.value)}
+                 placeholder="貼上你的 API Key..."
+                 className="flex-1 p-3 bg-slate-50 rounded-xl text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500"
+               />
+               <button onClick={saveKey} className={`px-4 rounded-xl font-black text-sm transition-all ${keySaved ? 'bg-green-500 text-white' : 'bg-slate-900 text-white'}`}>
+                 {keySaved ? '✓' : '儲存'}
+               </button>
+             </div>
+             {geminiKey && <div className="text-[10px] text-green-600 font-bold">✓ Key 已設定</div>}
+           </div>
+
            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 space-y-4">
                <h3 className="font-bold text-slate-800">開發者選項</h3>
                <p className="text-xs text-slate-500">如果無法匯出至 GitHub，你可以直接下載原始碼並手動更新至你的 Repository。</p>
@@ -2624,8 +2656,10 @@
               Format: Use clear headings or bullet points. Use emojis.
             `;
 
-            const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-            
+            const key = getGeminiKey();
+            if (!key) { setAiAdvice('⚙️ 請先在設定填入 Gemini API Key，AI 教練才能運作。'); setAiLoading(false); return; }
+            const ai = new GoogleGenAI({ apiKey: key });
+
             let adviceText = "";
             
             try {
