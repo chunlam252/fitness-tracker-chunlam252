@@ -96,7 +96,6 @@
     "firebase/app": "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js",
     "firebase/auth": "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js",
     "firebase/firestore": "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js",
-    "@google/genai": "https://esm.run/@google/genai",
     "marked": "https://esm.sh/marked@12.0.0",
     "react/": "https://esm.sh/react@^19.2.4/"
   }
@@ -113,7 +112,21 @@
     import { initializeApp, getApps, getApp } from 'firebase/app';
     import { getFirestore, doc, setDoc, onSnapshot, getDoc } from 'firebase/firestore';
     import { getAuth, onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, GoogleAuthProvider } from 'firebase/auth';
-    import { GoogleGenAI } from "@google/genai";
+    // Gemini via direct REST API (no SDK needed)
+    const geminiGenerate = async (prompt, key) => {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(JSON.stringify(err));
+      }
+      const data = await res.json();
+      return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    };
     import { parse } from "marked";
 
     const GEMINI_API_KEY_STORAGE = 'fittrack_gemini_key';
@@ -217,22 +230,7 @@
               `;
               
               const key = getGeminiKey(); if (!key) { setChatMessages(prev => [...prev, { role: 'ai', text: '請先在設定填入 Gemini API Key' }]); setIsChatting(false); return; }
-              const ai = new GoogleGenAI({ apiKey: key });
-              let responseText = "";
-              try {
-                  const response = await ai.models.generateContent({
-                      model: "gemini-2.0-flash",
-                      contents: prompt,
-                  });
-                  responseText = response.text;
-              } catch (fallbackErr) {
-                  console.warn("Fallback model used", fallbackErr);
-                  const responseFallback = await ai.models.generateContent({
-                      model: "gemini-1.5-flash",
-                      contents: prompt,
-                  });
-                  responseText = responseFallback.text;
-              }
+              const responseText = await geminiGenerate(prompt, key);
               
               setChatMessages(prev => [...prev, { role: 'ai', text: responseText }]);
           } catch (error) {
@@ -1487,11 +1485,9 @@
         (async () => {
           try {
             const key = getGeminiKey(); if (!key) { setInfo({ zhName:'', muscles:[exercise.group], howTo:'請先在設定填入 Gemini API Key', tip:'' }); setLoading(false); return; }
-            const ai = new GoogleGenAI({ apiKey: key });
             const prompt = `For the gym exercise "${exercise.name}" (${exercise.group} group), reply ONLY with valid JSON (no markdown):
 {"zhName":"Chinese name","muscles":["muscle1","muscle2"],"howTo":"2-3 sentences how to perform correctly in Traditional Chinese","tip":"one common mistake in Traditional Chinese"}`;
-            const res = await ai.models.generateContent({ model:'gemini-2.0-flash', contents: prompt });
-            const text = res.text.replace(/```json\n?|\n?```|```/g,'').trim();
+            const text = (await geminiGenerate(prompt, key)).replace(/```json\n?|\n?```|```/g,'').trim();
             const data = JSON.parse(text);
             sessionStorage.setItem(cacheKey, JSON.stringify(data));
             setInfo(data);
@@ -2280,9 +2276,18 @@
       );
     };
 
-    const Settings = ({ user, handleAuth, setView, onKeyChanged }) => {
+    const Settings = ({ user, handleAuth, setView, onKeyChanged, logs, onForceSync }) => {
        const [geminiKey, setGeminiKey] = React.useState(() => localStorage.getItem(GEMINI_API_KEY_STORAGE) || '');
        const [keySaved, setKeySaved] = React.useState(false);
+       const [syncing, setSyncing] = React.useState(false);
+       const [syncDone, setSyncDone] = React.useState(false);
+       const handleForceSync = async () => {
+         setSyncing(true);
+         await onForceSync();
+         setSyncing(false);
+         setSyncDone(true);
+         setTimeout(() => setSyncDone(false), 3000);
+       };
        const saveKey = () => {
          localStorage.setItem(GEMINI_API_KEY_STORAGE, geminiKey.trim());
          setKeySaved(true);
@@ -2322,6 +2327,11 @@
              <button onClick={handleAuth} className="w-full py-3 rounded-2xl font-bold bg-slate-900 text-white shadow-lg active:scale-95 transition-transform">
                 {user ? '登出帳戶' : '使用 Google 登入同步'}
              </button>
+             {user && (
+               <button onClick={handleForceSync} disabled={syncing} className={`w-full py-3 rounded-2xl font-bold active:scale-95 transition-all ${syncDone ? 'bg-green-500 text-white' : 'bg-blue-50 text-blue-600 border border-blue-200'}`}>
+                 {syncing ? '同步中...' : syncDone ? `✓ 已同步 ${logs?.length || 0} 條紀錄` : `☁️ 強制同步本地資料至雲端（${logs?.length || 0} 條）`}
+               </button>
+             )}
            </div>
            
            {/* Gemini API Key */}
@@ -2666,29 +2676,13 @@
 
             const key = getGeminiKey();
             if (!key) { setAiAdvice('⚙️ 請先在設定填入 Gemini API Key，AI 教練才能運作。'); setAiLoading(false); return; }
-            const ai = new GoogleGenAI({ apiKey: key });
-
             let adviceText = "";
-            
             try {
-              const response = await ai.models.generateContent({
-                model: "gemini-2.0-flash",
-                contents: prompt,
-              });
-              adviceText = response.text;
+              adviceText = await geminiGenerate(prompt, key);
             } catch (e) {
-              console.warn("gemini-2.0-flash failed, trying 1.5-flash...", e);
-              try {
-                  const response = await ai.models.generateContent({
-                    model: "gemini-1.5-flash",
-                    contents: prompt,
-                  });
-                  adviceText = response.text;
-              } catch (e2) {
-                  console.error("All AI models failed:", e2);
-                  setAiAdvice(`❌ AI 錯誤: ${e2.message || e2}`);
-                  return;
-              }
+              console.error("Gemini failed:", e);
+              setAiAdvice(`❌ AI 錯誤: ${e.message || e}`);
+              return;
             }
             
             if (adviceText) {
@@ -2822,7 +2816,7 @@
           {view === 'friends' && <FriendsView key={friendsKey} logs={logs} />}
           {view === 'add' && <Form onSave={handleSave} onCancel={()=>{setEditLog(null); setCalendarDate(null); setView('dashboard');}} onDelete={handleDelete} onCopy={handleCopy} initData={editLog} logs={logs} defaultDate={calendarDate} />}
           {view === 'weekplanner' && <WeekPlanner onBatchSave={handleBatchSave} onCancel={()=>setView('dashboard')} />}
-          {view === 'settings' && <Settings user={user} handleAuth={handleAuth} setView={setView} onKeyChanged={() => { setAiAdvice(null); setAiLoading(false); }} />}
+          {view === 'settings' && <Settings user={user} handleAuth={handleAuth} setView={setView} onKeyChanged={() => { setAiAdvice(null); setAiLoading(false); }} logs={logs} onForceSync={() => updateLogs(logs)} />}
         </Layout>
       );
     };
