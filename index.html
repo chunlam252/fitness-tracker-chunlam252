@@ -63,6 +63,15 @@
     .safe-area-pt { padding-top: max(1.5rem, env(safe-area-inset-top)); }
     .safe-area-pb { padding-bottom: env(safe-area-inset-bottom, 20px); }
     
+    /* Design cleanup: legible minimum sizes, calmer weight, no letter-spaced Chinese */
+    .text-\[8px\] { font-size: 10px !important; }
+    .text-\[9px\] { font-size: 11px !important; }
+    .text-\[10px\] { font-size: 12px !important; }
+    .text-\[11px\] { font-size: 12px !important; }
+    .font-black { font-weight: 700 !important; }
+    .tracking-widest { letter-spacing: 0.01em !important; }
+    .tabular { font-variant-numeric: tabular-nums; }
+
     .no-scrollbar::-webkit-scrollbar { display: none; }
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
@@ -496,41 +505,88 @@
 
     // --- MAIN APP COMPONENTS ---
 
-    const Layout = ({ children, activeView, setView, user, status, onAuth, onAdd }) => {
+    const VIEW_TITLES = { dashboard: null, calendar: '日曆', trends: '進度', friends: '好友', settings: '設定', add: '記錄運動', weekplanner: '週計劃' };
+
+    const Layout = ({ children, activeView, setView, user, status, onStartWorkout, onQuickLog, workoutActive }) => {
+      const [showAdd, setShowAdd] = React.useState(false);
+      const shell = "flex flex-col h-full max-w-md mx-auto bg-slate-50 relative overflow-hidden";
+
+      // Live workout takes the whole screen: no header, no tab bar
+      if (activeView === 'workout') return <div className={shell}>{children}</div>;
+
+      const ok = status.includes('已連線');
+      const bad = status.includes('⚠️') || status.includes('錯');
+      const today = new Date();
+      const title = VIEW_TITLES[activeView];
       return (
-        <div className="flex flex-col h-full max-w-md mx-auto bg-white shadow-2xl relative overflow-hidden border-x border-slate-100">
-          <header className="px-6 pb-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0 safe-area-pt">
-            <div>
-              <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                FitTrack
-              </h1>
-              <div className="flex items-center gap-1.5 mt-1">
-                <div className={`w-1.5 h-1.5 rounded-full ${status.includes('連線') || status.includes('同步') ? 'bg-green-500' : (status.includes('錯') ? 'bg-red-500' : 'bg-slate-300')}`}></div>
-                <p className="text-[9px] font-bold text-slate-400">{status}</p>
-              </div>
+        <div className={shell}>
+          {(activeView === 'add' || activeView === 'weekplanner') ? <div className="shrink-0 safe-area-pt"></div> :
+          <header className="px-5 pb-3 bg-slate-50 z-30 flex justify-between items-end shrink-0 safe-area-pt">
+            <div className="min-w-0">
+              {title ? (
+                <h1 className="text-2xl font-bold text-slate-900 leading-tight">{title}</h1>
+              ) : (
+                <>
+                  <div className="text-xs font-medium text-slate-400">{today.toLocaleDateString('zh-HK', { month: 'long', day: 'numeric', weekday: 'long' })}</div>
+                  <h1 className="text-2xl font-bold text-slate-900 leading-tight">今日</h1>
+                </>
+              )}
+              {!ok && <div className={`text-xs font-medium mt-0.5 truncate ${bad ? 'text-amber-600' : 'text-slate-400'}`}>{status}</div>}
             </div>
-            <button onClick={() => setView('settings')} className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 hover:bg-slate-100 transition-colors">
+            <button onClick={() => setView('settings')} aria-label="設定" className="w-11 h-11 shrink-0 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-400 relative">
               {user?.photoURL ?
-                <img src={user.photoURL} className="w-full h-full rounded-full object-cover border border-slate-200" alt="user" /> :
+                <img src={user.photoURL} className="w-full h-full rounded-full object-cover" alt="user" /> :
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
               }
+              <span className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-slate-50 ${ok ? 'bg-green-500' : bad ? 'bg-amber-500' : 'bg-slate-300'}`}></span>
             </button>
-          </header>
-          <main className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50 relative">{children}</main>
-          <nav className="shrink-0 bg-white border-t border-slate-100 grid grid-cols-5 items-end pb-6 pt-2 px-2 z-30 safe-area-pb shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.05)] relative">
+          </header>}
+
+          <main className="flex-1 overflow-y-auto custom-scrollbar relative">{children}</main>
+
+          {workoutActive && (
+            <button onClick={onStartWorkout} className="shrink-0 bg-slate-900 text-white px-5 py-3 flex items-center justify-between text-sm font-bold">
+              <span>🏋️ 訓練進行中</span><span className="text-blue-300">返回訓練 →</span>
+            </button>
+          )}
+
+          <nav className="shrink-0 bg-white border-t border-slate-200 grid grid-cols-5 items-end pt-1.5 px-2 z-30 relative" style={{ paddingBottom: 'max(10px, env(safe-area-inset-bottom))' }}>
             <NavBtn active={activeView === 'dashboard'} onClick={() => setView('dashboard')} icon="home" label="主頁" />
-            <NavBtn active={activeView === 'trends'} onClick={() => setView('trends')} icon="chart" label="統計" />
-            <div className="flex justify-center -mt-12 relative z-10 pointer-events-none">
-              <button onClick={onAdd} className="pointer-events-auto flex flex-col items-center group active:scale-95 transition-transform">
-                <div className="w-16 h-16 rounded-full flex items-center justify-center text-white shadow-xl border-[6px] border-white ring-1 ring-slate-100 bg-blue-600 shadow-blue-200">
-                  <span className="text-2xl">+</span>
-                </div>
-                <span className="text-[10px] font-bold text-blue-600 mt-1">紀錄</span>
+            <NavBtn active={activeView === 'calendar'} onClick={() => setView('calendar')} icon="calendar" label="日曆" />
+            <div className="flex justify-center">
+              <button onClick={() => setShowAdd(true)} aria-label="新增紀錄" className="w-14 h-14 -mt-5 rounded-full flex items-center justify-center text-white bg-blue-600 shadow-lg shadow-blue-200 active:scale-95 transition-transform">
+                <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth={2.5} d="M12 5v14M5 12h14" /></svg>
               </button>
             </div>
-            <NavBtn active={activeView === 'calendar'} onClick={() => setView('calendar')} icon="calendar" label="日曆" />
-            <NavBtn active={activeView === 'settings'} onClick={() => setView('settings')} icon="settings" label="設定" />
+            <NavBtn active={activeView === 'trends'} onClick={() => setView('trends')} icon="chart" label="進度" />
+            <NavBtn active={activeView === 'friends'} onClick={() => setView('friends')} icon="users" label="好友" />
           </nav>
+
+          {showAdd && (
+            <div className="absolute inset-0 z-40 flex flex-col justify-end" style={{ background: 'rgba(15,23,42,0.5)' }} onClick={() => setShowAdd(false)}>
+              <div className="bg-white rounded-t-3xl p-5 animate-slide-up" style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }} onClick={e => e.stopPropagation()}>
+                <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-4"></div>
+                <button onClick={() => { setShowAdd(false); onStartWorkout(); }} className="w-full flex items-center gap-4 p-4 rounded-2xl bg-blue-600 text-white text-left active:scale-[0.98] transition-transform">
+                  <span className="text-3xl">🏋️</span>
+                  <span className="flex-1">
+                    <span className="block text-base font-bold">{workoutActive ? '返回進行中的訓練' : '開始 Gym 訓練'}</span>
+                    <span className="block text-xs text-blue-100 mt-0.5">邊練邊記，逐組剔，自動計時</span>
+                  </span>
+                  <span className="text-xl">→</span>
+                </button>
+                <div className="text-xs font-medium text-slate-400 mt-5 mb-2">記錄其他運動</div>
+                <div className="grid grid-cols-4 gap-2">
+                  {CATEGORIES.map(c => (
+                    <button key={c.value} onClick={() => { setShowAdd(false); onQuickLog(c.value); }} className="flex flex-col items-center gap-1.5 py-3 rounded-2xl bg-slate-50 active:bg-slate-100">
+                      <span className="text-2xl">{c.icon}</span>
+                      <span className="text-xs font-medium text-slate-700">{c.value === 'Gym' ? 'Gym 補記' : c.value}</span>
+                    </button>
+                  ))}
+                </div>
+                <button onClick={() => { setShowAdd(false); setView('weekplanner'); }} className="w-full mt-3 py-3.5 rounded-2xl bg-slate-50 text-sm font-medium text-slate-600 active:bg-slate-100">📅 計劃下星期</button>
+              </div>
+            </div>
+          )}
         </div>
       );
     };
@@ -551,7 +607,7 @@
       );
     };
 
-    const Dashboard = ({ logs, onEdit, setView, aiAdvice, aiLoading, onRefreshAi, onMarkDone, onRepeat }) => {
+    const Dashboard = ({ logs, onEdit, setView, aiAdvice, aiLoading, onRefreshAi, onMarkDone, onRepeat, onStartWorkout, onQuickLog, workoutActive }) => {
       // 1. Stats: COMPLETED or OLD DATA (undefined status)
       const completedLogs = logs.filter(l => l.status === 'completed' || !l.status);
       
@@ -624,68 +680,93 @@
         return null;
       })();
 
+      // This week (Sun–Sat), one cell per day
+      const weekDays = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(now); d.setDate(now.getDate() - now.getDay() + i);
+        const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        const done = completedLogs.filter(l => l.date === ds);
+        const planned = logs.filter(l => l.date === ds && l.status === 'planned');
+        const top = [...done].sort((a, b) => (b.durationMinutes || 0) - (a.durationMinutes || 0))[0] || planned[0];
+        return { ds, day: d.getDate(), label: ['日','一','二','三','四','五','六'][i], isToday: ds === todayStr, done: done.length > 0, planned: !done.length && planned.length > 0, icon: top ? (CATEGORIES.find(c => c.value === top.category)?.icon || '✨') : null };
+      });
+      const todayDone = completedLogs.filter(l => l.date === todayStr);
+      // Sports you log most (last 90 days, excluding Gym which has its own button)
+      const topCats = (() => {
+        const cnt = {};
+        completedLogs.forEach(l => { if (l.category !== 'Gym' && daysSince(l.date) <= 90) cnt[l.category] = (cnt[l.category] || 0) + 1; });
+        return Object.entries(cnt).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([v]) => CATEGORIES.find(c => c.value === v)).filter(Boolean);
+      })();
+
       return (
-        <div className="p-6 space-y-6 animate-slide-up pb-24">
-          {/* Today Widget */}
-          <div className="bg-gradient-to-br from-blue-600 to-blue-500 rounded-3xl p-5 text-white shadow-xl shadow-blue-200">
-            {todayPlanned.length > 0 ? (
-              <>
-                <div className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-3">📅 今日計劃</div>
-                <div className="space-y-3">
-                  {todayPlanned.map(l => {
-                    const cat = CATEGORIES.find(c=>c.value===l.category)||CATEGORIES[0];
-                    return (
-                      <div key={l.id} className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-2xl bg-white/20 flex items-center justify-center text-xl">{cat.icon}</div>
-                          <div>
-                            <div className="font-bold text-sm">{l.subcategory}</div>
-                            <div className="text-xs opacity-70">{l.startTime && `${l.startTime} · `}{l.durationMinutes}min</div>
-                          </div>
-                        </div>
-                        <button onClick={()=>onMarkDone(l.id)} className="bg-white text-blue-600 font-black text-xs px-3 py-2 rounded-xl active:scale-95 transition-transform shadow-sm">✅ 完成</button>
+        <div className="px-5 pt-1 space-y-5 animate-slide-up pb-10">
+          {/* Today */}
+          <div className="bg-white rounded-3xl border border-slate-200 p-5 space-y-4">
+            {todayPlanned.length > 0 && (
+              <div className="space-y-3">
+                <div className="text-xs font-medium text-slate-400">今日計劃</div>
+                {todayPlanned.map(l => {
+                  const cat = CATEGORIES.find(c=>c.value===l.category)||CATEGORIES[0];
+                  return (
+                    <div key={l.id} className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-2xl bg-slate-100 flex items-center justify-center text-xl">{cat.icon}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-base font-bold text-slate-900 truncate">{l.subcategory}</div>
+                        <div className="text-xs text-slate-400">{l.startTime ? `${l.startTime} · ` : ''}{l.durationMinutes} 分鐘</div>
                       </div>
-                    );
-                  })}
-                </div>
-              </>
-            ) : lastCompleted ? (
-              <>
-                <div className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-3">🔁 上次訓練</div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-2xl bg-white/20 flex items-center justify-center text-xl">
-                      {CATEGORIES.find(c=>c.value===lastCompleted.category)?.icon}
+                      <button onClick={()=>onMarkDone(l.id)} className="h-11 px-4 rounded-xl bg-green-50 text-green-700 text-sm font-bold active:scale-95 transition-transform">✓ 完成</button>
                     </div>
-                    <div>
-                      <div className="font-bold text-sm">{lastCompleted.subcategory}</div>
-                      <div className="text-xs opacity-70">{lastCompleted.date} · {lastCompleted.durationMinutes}min</div>
-                    </div>
-                  </div>
-                  <button onClick={()=>onRepeat(lastCompleted)} className="bg-white text-blue-600 font-black text-xs px-3 py-2 rounded-xl active:scale-95 transition-transform shadow-sm">再做一次</button>
+                  );
+                })}
+              </div>
+            )}
+            {todayPlanned.length === 0 && todayDone.length > 0 && (
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-green-50 flex items-center justify-center text-xl">✅</div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-base font-bold text-slate-900">今日已完成</div>
+                  <div className="text-xs text-slate-400 truncate">{todayDone.map(l => `${l.subcategory} ${l.durationMinutes || 0} 分鐘`).join('、')}</div>
                 </div>
-              </>
-            ) : (
-              <div className="text-center py-2 opacity-80 text-sm font-bold">按 + 開始今日訓練 💪</div>
+              </div>
+            )}
+            {todayPlanned.length === 0 && todayDone.length === 0 && (
+              <div>
+                <div className="text-base font-bold text-slate-900">今日未有運動</div>
+                <div className="text-xs text-slate-400 mt-0.5">{lastCompleted ? `上次：${lastCompleted.date.replace(/-/g,'/')} ${lastCompleted.subcategory}` : '由第一次紀錄開始'}</div>
+              </div>
+            )}
+            <button onClick={onStartWorkout} className="w-full h-14 rounded-2xl bg-blue-600 text-white text-base font-bold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform">
+              🏋️ {workoutActive ? '返回進行中的訓練' : '開始 Gym 訓練'}
+            </button>
+            {topCats.length > 0 && (
+              <div className="flex gap-2">
+                {topCats.map(c => (
+                  <button key={c.value} onClick={() => onQuickLog(c.value)} className="flex-1 h-12 rounded-2xl bg-slate-50 border border-slate-100 text-sm font-medium text-slate-700 flex items-center justify-center gap-1.5 active:bg-slate-100">
+                    <span className="text-lg">{c.icon}</span>記錄{c.value}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
-             <button onClick={cycleGoal} className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between h-24 text-left active:scale-95 transition-transform">
-               <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">本週目標 <span className="normal-case opacity-60">(點擊改)</span></div>
-               <div>
-                 <div className="text-2xl font-black text-slate-800">{thisWeekCount}<span className="text-xs font-bold text-slate-400 ml-1">/ {goal} 次{thisWeekCount >= goal ? ' 🎉' : ''}</span></div>
-                 <div className="h-1.5 bg-slate-100 rounded-full mt-1.5 overflow-hidden"><div className={`h-full rounded-full ${thisWeekCount >= goal ? 'bg-green-500' : 'bg-blue-500'}`} style={{width: `${Math.min(100, (thisWeekCount / goal) * 100)}%`}}></div></div>
-               </div>
-             </button>
-             <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between h-24">
-               <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">連續</div>
-               <div className="text-2xl font-black text-slate-800">{streak > 0 ? `🔥${streak}` : '—'}<span className="text-xs font-bold text-slate-400 ml-1">{streak > 0 ? '天' : ''}</span></div>
-             </div>
-             <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between h-24">
-               <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">心情</div>
-               <div className="text-sm font-black text-slate-800">{moodText}</div>
-             </div>
+          {/* This week */}
+          <div className="bg-white rounded-3xl border border-slate-200 p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div className="text-base font-bold text-slate-900">本週</div>
+              <button onClick={cycleGoal} className="text-sm font-medium text-slate-500 active:opacity-60">
+                <span className={`font-bold ${thisWeekCount >= goal ? 'text-green-600' : 'text-slate-900'}`}>{thisWeekCount}</span> / {goal} 次{thisWeekCount >= goal ? ' 🎉' : ''}{streak > 1 ? ` · 🔥 連續 ${streak} 日` : ''} <span className="text-slate-300">✎</span>
+              </button>
+            </div>
+            <div className="grid grid-cols-7 gap-1">
+              {weekDays.map(d => (
+                <button key={d.ds} onClick={() => setView('calendar')} className="flex flex-col items-center gap-1.5">
+                  <span className={`text-xs ${d.isToday ? 'font-bold text-blue-600' : 'text-slate-400'}`}>{d.label}</span>
+                  <span className={`w-10 h-10 rounded-full flex items-center justify-center text-lg ${d.done ? 'bg-blue-50' : d.planned ? 'border-2 border-dashed border-slate-300 opacity-60' : 'bg-slate-50'} ${d.isToday ? 'ring-2 ring-blue-500 ring-offset-2' : ''}`}>
+                    {d.icon || <span className="text-xs text-slate-300">{d.day}</span>}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="h-1.5 bg-slate-100 rounded-full mt-4 overflow-hidden"><div className={`h-full rounded-full ${thisWeekCount >= goal ? 'bg-green-500' : 'bg-blue-500'}`} style={{width: `${Math.min(100, (thisWeekCount / goal) * 100)}%`}}></div></div>
           </div>
 
           {restAlert && (
@@ -696,7 +777,7 @@
 
           {neglected.length > 0 && (
             <div className="bg-white border border-slate-100 rounded-3xl shadow-sm p-4">
-              <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">🏋️ 好耐冇練</div>
+              <div className="text-base font-bold text-slate-900 mb-3">好耐冇練</div>
               <div className="flex gap-2">
                 {neglected.map(g => (
                   <div key={g.key} className={`flex-1 rounded-2xl p-3 text-center ${g.since === null || g.since >= 14 ? 'bg-red-50' : 'bg-amber-50'}`}>
@@ -711,11 +792,11 @@
 
           <div>
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">最近行程</h3>
-              <button onClick={()=>setView('calendar')} className="text-xs font-bold text-blue-600">查看日曆</button>
+              <h3 className="text-base font-bold text-slate-900">最近紀錄</h3>
+              <button onClick={()=>setView('calendar')} className="text-sm font-medium text-blue-600 py-1">全部 →</button>
             </div>
             <div className="space-y-3">
-              {sorted.slice(0, 10).map(l => {
+              {sorted.filter(l => l.date <= todayStr).slice(0, 5).map(l => {
                 const c = CATEGORIES.find(x=>x.value===l.category) || CATEGORIES[5];
                 const isPlanned = l.status === 'planned';
                 
@@ -1200,11 +1281,17 @@
       return (
         <div className="p-6 space-y-6 animate-slide-up pb-24">
 
-          {/* Tab switcher: 概覽 | 好友 */}
-          <div className="flex bg-slate-100 p-1 rounded-2xl">
-            <button onClick={()=>setTrendsTab('overview')} className={`flex-1 py-2 text-xs font-black rounded-xl transition-all ${trendsTab==='overview'?'bg-white text-slate-800 shadow-sm':'text-slate-400'}`}>📊 概覽</button>
-            <button onClick={()=>setTrendsTab('friends')} className={`flex-1 py-2 text-xs font-black rounded-xl transition-all ${trendsTab==='friends'?'bg-white text-slate-800 shadow-sm':'text-slate-400'}`}>👥 好友</button>
-          </div>
+          {/* Shortcut: per-exercise PRs and progress charts used to be 3 taps deep */}
+          {completed.some(l => l.category === 'Gym' && l.perf?.exercises?.length) && (
+            <button onClick={() => { setFilter('all'); setSelectedCategory('Gym'); }} className="w-full flex items-center gap-4 p-4 rounded-2xl bg-slate-900 text-white text-left active:scale-[0.98] transition-transform">
+              <span className="text-2xl">🏆</span>
+              <span className="flex-1">
+                <span className="block text-base font-bold">Gym 動作進度</span>
+                <span className="block text-xs text-slate-300 mt-0.5">每個動作的 PR、重量趨勢、訓練量</span>
+              </span>
+              <span className="text-xl">→</span>
+            </button>
+          )}
 
           {trendsTab === 'friends' ? <FriendsView logs={logs} /> : (<>
 
@@ -1662,7 +1749,44 @@
     const CUSTOM_EX_KEY = 'fittrack_custom_ex';
 
     // ── Exercise Info Sheet (Gemini-powered) ───────────────────────────────
+    // ── free-exercise-db (Unlicense / public domain) ──────────────────────
+    // https://github.com/yuhonas/free-exercise-db — pinned to one commit so the
+    // content can never change underneath us. Only plain text + JPG are used;
+    // nothing from it is ever executed or rendered as HTML.
+    const EXDB_SHA = 'f00c92c7dcf1216a928a52c3706c7ce8e2f71ed5';
+    const EXDB_BASE = `https://cdn.jsdelivr.net/gh/yuhonas/free-exercise-db@${EXDB_SHA}/exercises/`;
+    const EXDB_MAP = {"Bench Press (Barbell)":"Barbell_Bench_Press_-_Medium_Grip","Bench Press (Dumbbell)":"Dumbbell_Bench_Press","Bench Press (Smith Machine)":"Smith_Machine_Bench_Press","Incline Bench Press (Barbell)":"Barbell_Incline_Bench_Press_-_Medium_Grip","Incline Bench Press (Dumbbell)":"Incline_Dumbbell_Press","Incline Bench Press (Smith Machine)":"Smith_Machine_Incline_Bench_Press","Decline Bench Press (Barbell)":"Decline_Barbell_Bench_Press","Decline Bench Press (Dumbbell)":"Decline_Dumbbell_Bench_Press","Cable Crossover":"Cable_Crossover","Cable Fly (High to Low)":"Cable_Crossover","Cable Fly (Low to High)":"Low_Cable_Crossover","Chest Fly (Dumbbell)":"Dumbbell_Flyes","Chest Fly (Machine)":"Butterfly","Pec Deck":"Butterfly","Push Up":"Pushups","Wide Push Up":"Push-Up_Wide","Diamond Push Up":"Push-Ups_-_Close_Triceps_Position","Chest Dip":"Dips_-_Chest_Version","Dumbbell Pullover":"Bent-Arm_Dumbbell_Pullover","Around the World":"Around_The_Worlds","Deadlift":"Barbell_Deadlift","Conventional Deadlift":"Barbell_Deadlift","Sumo Deadlift":"Sumo_Deadlift","Romanian Deadlift":"Romanian_Deadlift","Rack Pull":"Rack_Pulls","Pull Up":"Pullups","Chin Up":"Chin-Up","Weighted Pull Up":"Weighted_Pull_Ups","Lat Pulldown":"Wide-Grip_Lat_Pulldown","Lat Pulldown (Wide Grip)":"Wide-Grip_Lat_Pulldown","Lat Pulldown (Underhand)":"Underhand_Cable_Pulldowns","Lat Pulldown (Neutral)":"V-Bar_Pulldown","Barbell Row":"Bent_Over_Barbell_Row","T-Bar Row":"T-Bar_Row_with_Handle","Chest Supported Row":"Dumbbell_Incline_Row","Cable Row (Narrow)":"Seated_Cable_Rows","Cable Row (Wide)":"Seated_Cable_Rows","Single Arm Row (Dumbbell)":"One-Arm_Dumbbell_Row","Face Pull":"Face_Pull","Shrug (Barbell)":"Barbell_Shrug","Shrug (Dumbbell)":"Dumbbell_Shrug","Back Extension":"Hyperextensions_Back_Extensions","Hyperextension":"Hyperextensions_Back_Extensions","Overhead Press (Barbell)":"Standing_Military_Press","Overhead Press (Dumbbell)":"Dumbbell_Shoulder_Press","Shoulder Press (Machine)":"Machine_Shoulder_Military_Press","Smith Machine Press":"Smith_Machine_Overhead_Shoulder_Press","Arnold Press":"Arnold_Dumbbell_Press","Push Press":"Push_Press","Lateral Raise (Dumbbell)":"Side_Lateral_Raise","Lateral Raise (Cable)":"Cable_Seated_Lateral_Raise","Front Raise (Dumbbell)":"Front_Dumbbell_Raise","Front Raise (Barbell)":"Standing_Front_Barbell_Raise_Over_Head","Front Raise (Cable)":"Front_Cable_Raise","Front Raise (Plate)":"Front_Plate_Raise","Rear Delt Fly (Dumbbell)":"Reverse_Flyes","Rear Delt Fly (Machine)":"Reverse_Machine_Flyes","Rear Delt Fly (Cable)":"Cable_Rear_Delt_Fly","Upright Row":"Upright_Barbell_Row","Cable Lateral Raise":"Cable_Seated_Lateral_Raise","Band Pull Apart":"Band_Pull_Apart","Bicep Curl (Barbell)":"Barbell_Curl","Bicep Curl (Dumbbell)":"Dumbbell_Bicep_Curl","Bicep Curl (EZ Bar)":"EZ-Bar_Curl","Bicep Curl (Cable)":"Standing_Biceps_Cable_Curl","Hammer Curl":"Hammer_Curls","Hammer Curl (Cable)":"Cable_Hammer_Curls_-_Rope_Attachment","Incline Dumbbell Curl":"Incline_Dumbbell_Curl","Preacher Curl":"Preacher_Curl","Preacher Curl (Machine)":"Machine_Preacher_Curls","Concentration Curl":"Concentration_Curls","Zottman Curl":"Zottman_Curl","Reverse Curl":"Reverse_Barbell_Curl","Tricep Pushdown (Cable)":"Triceps_Pushdown","Tricep Pushdown (Rope)":"Triceps_Pushdown_-_Rope_Attachment","Tricep Pushdown (V-Bar)":"Triceps_Pushdown_-_V-Bar_Attachment","Skull Crusher (Barbell)":"Lying_Triceps_Press","Skull Crusher (EZ Bar)":"EZ-Bar_Skullcrusher","Skull Crusher (Dumbbell)":"Lying_Dumbbell_Tricep_Extension","Overhead Tricep Extension (Dumbbell)":"Standing_Dumbbell_Triceps_Extension","Overhead Tricep Extension (Cable)":"Cable_Rope_Overhead_Triceps_Extension","Overhead Tricep Extension (EZ Bar)":"Standing_Overhead_Barbell_Triceps_Extension","Close Grip Bench Press":"Close-Grip_Barbell_Bench_Press","Dips":"Dips_-_Triceps_Version","Tricep Kickback":"Tricep_Dumbbell_Kickback","Back Squat (Barbell)":"Barbell_Squat","Front Squat":"Front_Barbell_Squat","Goblet Squat":"Goblet_Squat","Box Squat":"Box_Squat","Hack Squat (Machine)":"Hack_Squat","Leg Press":"Leg_Press","Leg Extension (Machine)":"Leg_Extensions","Lunge":"Dumbbell_Lunges","Walking Lunge":"Bodyweight_Walking_Lunge","Step Up":"Dumbbell_Step_Ups","Step Up (Weighted)":"Dumbbell_Step_Ups","Romanian Deadlift (Dumbbell)":"Romanian_Deadlift","Stiff Leg Deadlift":"Stiff-Legged_Barbell_Deadlift","Leg Curl (Machine)":"Lying_Leg_Curls","Good Morning":"Good_Morning","Hip Thrust (Barbell)":"Barbell_Hip_Thrust","Glute Bridge":"Barbell_Glute_Bridge","Single Leg Glute Bridge":"Single_Leg_Glute_Bridge","Hip Abductor (Machine)":"Thigh_Abductor","Hip Adductor (Machine)":"Thigh_Adductor","Lateral Band Walk":"Monster_Walk","Cable Kickback":"One-Legged_Cable_Kickback","Donkey Kick":"Glute_Kickback","Calf Raise (Standing)":"Standing_Calf_Raises","Calf Raise (Seated)":"Seated_Calf_Raise","Calf Press on Leg Press":"Calf_Press_On_The_Leg_Press_Machine","Donkey Calf Raise":"Donkey_Calf_Raises","Plank":"Plank","Side Plank":"Side_Bridge","Crunch":"Crunches","Reverse Crunch":"Reverse_Crunch","Bicycle Crunch":"Air_Bike","Decline Crunch":"Decline_Crunch","Weighted Crunch":"Weighted_Crunches","Leg Raise (Hanging)":"Hanging_Leg_Raise","Leg Raise (Lying)":"Flat_Bench_Lying_Leg_Raise","Ab Wheel":"Ab_Roller","Cable Crunch":"Cable_Crunch","Kneeling Cable Crunch":"Kneeling_Cable_Crunch_With_Alternating_Oblique_Twists","Russian Twist":"Russian_Twist","Woodchop (Cable)":"Standing_Cable_Wood_Chop","Pallof Press":"Pallof_Press","Dead Bug":"Dead_Bug","V-Up":"Jackknife_Sit-Up","Clean and Jerk":"Clean_and_Jerk","Power Clean":"Power_Clean","Hang Clean":"Hang_Clean","Clean Pull":"Clean_Pull","Snatch":"Snatch","Power Snatch":"Power_Snatch","Hang Snatch":"Hang_Snatch","Thruster":"Kettlebell_Thruster","Split Jerk":"Split_Jerk","Box Jump":"Front_Box_Jump","Depth Jump":"Depth_Jump_Leap","Farmer Walk":"Farmers_Walk","Kettlebell Swing":"One-Arm_Kettlebell_Swings","Kettlebell Turkish Get Up":"Kettlebell_Turkish_Get-Up_Squat_style","Battle Ropes":"Battling_Ropes"};
+    const MUSCLE_ZH = { abdominals:'腹肌', hamstrings:'大腿後側', adductors:'內收肌', quadriceps:'股四頭肌', biceps:'二頭肌', shoulders:'肩膀', chest:'胸肌', 'middle back':'中背', calves:'小腿', glutes:'臀肌', 'lower back':'下背', lats:'背闊肌', triceps:'三頭肌', traps:'斜方肌', forearms:'前臂', neck:'頸', abductors:'外展肌' };
+
     const ExerciseInfoSheet = ({ exercise, onClose }) => {
+      // Photos + English steps from free-exercise-db (only for exercises we could match)
+      const refId = EXDB_MAP[exercise.name];
+      const [ref, setRef] = React.useState(null);
+      const [frame, setFrame] = React.useState(0);
+      React.useEffect(() => {
+        if (!refId || !/^[A-Za-z0-9_\-]+$/.test(refId)) return;
+        const ck = 'fittrack_exdb_' + refId;
+        try { const c = localStorage.getItem(ck); if (c) { setRef(JSON.parse(c)); return; } } catch {}
+        let dead = false;
+        fetch(EXDB_BASE + refId + '.json').then(r => r.ok ? r.json() : Promise.reject()).then(j => {
+          const slim = {
+            name: String(j.name || ''), equipment: String(j.equipment || ''), level: String(j.level || ''),
+            primary: (j.primaryMuscles || []).filter(s => typeof s === 'string'),
+            secondary: (j.secondaryMuscles || []).filter(s => typeof s === 'string'),
+            instructions: (j.instructions || []).filter(s => typeof s === 'string'),
+            images: (j.images || []).filter(p => typeof p === 'string' && /^[A-Za-z0-9_\-]+\/\d+\.jpg$/.test(p)).slice(0, 2),
+          };
+          try { localStorage.setItem(ck, JSON.stringify(slim)); } catch {}
+          if (!dead) setRef(slim);
+        }).catch(() => {});
+        return () => { dead = true; };
+      }, [refId]);
+      React.useEffect(() => {
+        if (!ref || ref.images.length < 2) return;
+        const id = setInterval(() => setFrame(f => 1 - f), 900);
+        return () => clearInterval(id);
+      }, [ref]);
+
       const [info, setInfo] = React.useState(null);
       const cacheKey = 'fittrack_exinfo_' + exercise.name.replace(/[^a-zA-Z0-9]/g,'_');
       const hasCache = (() => { try { return !!localStorage.getItem(cacheKey); } catch { return false; } })();
@@ -1710,6 +1834,34 @@
               <a href={`https://www.youtube.com/results?search_query=${q}`} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 py-3 rounded-2xl bg-red-500 text-white font-black text-sm active:scale-95 transition-transform">▶ 示範影片</a>
               <a href={`https://www.google.com/search?tbm=isch&q=${q}`} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 py-3 rounded-2xl bg-slate-100 text-slate-700 font-black text-sm active:scale-95 transition-transform">🖼 動作圖片</a>
             </div>
+            {ref && (
+              <div className="mb-4 space-y-3">
+                {ref.images.length > 0 && (
+                  <div className="relative w-full rounded-2xl overflow-hidden bg-slate-100" style={{ aspectRatio: '4 / 3' }}>
+                    {ref.images.map((p, i) => (
+                      <img key={p} src={EXDB_BASE + p} alt={ref.name} className="absolute inset-0 w-full h-full object-contain transition-opacity duration-300" style={{ opacity: (ref.images.length < 2 || frame === i) ? 1 : 0 }} />
+                    ))}
+                    {ref.images.length > 1 && <div className="absolute bottom-2 right-2 text-[9px] font-black bg-black/50 text-white px-2 py-0.5 rounded-full">{frame === 0 ? '起始' : '結束'}</div>}
+                  </div>
+                )}
+                {(ref.primary.length > 0 || ref.secondary.length > 0) && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {ref.primary.map(m => <span key={'p' + m} className="bg-indigo-50 text-indigo-600 text-xs font-black px-3 py-1 rounded-full">{MUSCLE_ZH[m] || m}</span>)}
+                    {ref.secondary.map(m => <span key={'s' + m} className="bg-slate-100 text-slate-500 text-xs font-bold px-3 py-1 rounded-full">{MUSCLE_ZH[m] || m}</span>)}
+                    {ref.equipment && <span className="bg-amber-50 text-amber-600 text-xs font-bold px-3 py-1 rounded-full">{ref.equipment}</span>}
+                  </div>
+                )}
+                {ref.instructions.length > 0 && (
+                  <details className="bg-slate-50 rounded-2xl p-4">
+                    <summary className="text-xs font-black text-slate-500 cursor-pointer">英文動作步驟（{ref.instructions.length} 步）</summary>
+                    <ol className="list-decimal pl-5 mt-3 space-y-2 text-sm text-slate-700 leading-relaxed">
+                      {ref.instructions.map((s, i) => <li key={i}>{s}</li>)}
+                    </ol>
+                  </details>
+                )}
+                <div className="text-[9px] text-slate-300 text-center">圖片與資料：free-exercise-db（公有領域）</div>
+              </div>
+            )}
             {!wantAI && !info && (
               <button type="button" onClick={() => setWantAI(true)} className="w-full py-3 rounded-2xl border-2 border-dashed border-indigo-200 text-indigo-500 font-black text-sm active:scale-95 transition-transform">✨ AI 中文說明（肌群、要領、常見錯誤）</button>
             )}
@@ -1879,15 +2031,250 @@
       );
     };
 
-    const Form = ({ onSave, onCancel, onDelete, onCopy, initData, logs, defaultDate }) => {
+    // ── Live Gym workout ──────────────────────────────────────────────────
+    // Used *while* training: tick each set, rest timer starts by itself, times are
+    // recorded automatically. State is saved on every change so closing the app
+    // mid-workout loses nothing.
+    const ACTIVE_WORKOUT_KEY = 'fittrack_active_workout';
+    const KG_PER_LB = 0.453592;
+    const fmtNum = (n) => String(Math.round(n * 10) / 10);
+    const exSets = (ex) => Array.isArray(ex.sets) ? ex.sets : Array.from({ length: Number(ex.sets) || 1 }, () => ({ weightKg: ex.weightKg || '', reps: ex.reps || '' }));
+    const pad2 = (n) => String(n).padStart(2, '0');
+
+    const WorkoutSession = ({ logs, onFinish, onDiscard, onMinimize }) => {
+      const [w, setW] = useState(() => readJson(ACTIVE_WORKOUT_KEY, null) || { startedAt: Date.now(), exercises: [] });
+      useEffect(() => { try { localStorage.setItem(ACTIVE_WORKOUT_KEY, JSON.stringify(w)); } catch {} }, [w]);
+
+      const [now, setNow] = useState(Date.now());
+      useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id); }, []);
+      const elapsed = Math.max(0, Math.floor((now - w.startedAt) / 1000));
+      const elapsedStr = `${Math.floor(elapsed / 3600) > 0 ? Math.floor(elapsed / 3600) + ':' : ''}${pad2(Math.floor(elapsed / 60) % 60)}:${pad2(elapsed % 60)}`;
+
+      const [showPicker, setShowPicker] = useState(false);
+      const [infoEx, setInfoEx] = useState(null);
+      const [restSignal, setRestSignal] = useState(0);
+      const [showFinish, setShowFinish] = useState(false);
+      const [mood, setMood] = useState('😊');
+      const [notes, setNotes] = useState('');
+      const [durMin, setDurMin] = useState('');
+
+      // Per-exercise history: last session's sets and all-time best weight (kg)
+      const { history, lastGym } = React.useMemo(() => {
+        const h = {}; let lg = null;
+        [...(logs || [])].filter(l => l.category === 'Gym' && (l.status === 'completed' || !l.status))
+          .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+          .forEach(l => {
+            let any = false;
+            (l.perf?.exercises || []).forEach(ex => {
+              if (!ex.name) return;
+              const sets = exSets(ex).filter(s => s.reps || s.weightKg);
+              if (!sets.length) return;
+              any = true;
+              const e = h[ex.name] = h[ex.name] || { pr: 0 };
+              e.last = { date: l.date, sets };
+              sets.forEach(s => { const k = Number(s.weightKg) || 0; if (k > e.pr) e.pr = k; });
+            });
+            if (any) lg = l;
+          });
+        return { history: h, lastGym: lg };
+      }, [logs]);
+
+      const toUnit = (kg, unit) => unit === 'lb' ? String(Math.round(kg / KG_PER_LB)) : fmtNum(kg);
+      // Suggested values for a set: same set last session, else the previous set today
+      const hint = (e, k) => {
+        const last = history[e.name]?.last?.sets;
+        if (last && last.length) {
+          const s = last[Math.min(k, last.length - 1)];
+          const kg = Number(s.weightKg) || 0;
+          return { w: kg ? toUnit(kg, e.unit) : '', r: s.reps ? String(s.reps) : '' };
+        }
+        const prev = k > 0 ? e.sets[k - 1] : null;
+        return prev ? { w: prev.weightKg, r: prev.reps } : { w: '', r: '' };
+      };
+
+      const setEx = (i, fn) => setW(p => ({ ...p, exercises: p.exercises.map((e, idx) => idx === i ? fn(e) : e) }));
+      const blankSets = (n) => Array.from({ length: n }, () => ({ weightKg: '', reps: '', done: false }));
+      const addExercise = (name, group) => {
+        const n = history[name]?.last?.sets.length || 3;
+        setW(p => ({ ...p, exercises: [...p.exercises, { name, muscleGroup: group || findMuscleGroup(name) || '', unit: 'kg', sets: blankSets(n) }] }));
+      };
+      const copyLast = () => {
+        if (!lastGym) return;
+        const ex = lastGym.perf.exercises.filter(e => e.name).map(e => ({ name: e.name, muscleGroup: e.muscleGroup || findMuscleGroup(e.name) || '', unit: 'kg', sets: blankSets(exSets(e).length) }));
+        setW(p => ({ ...p, exercises: ex }));
+      };
+      const updateSet = (i, k, field, val) => setEx(i, e => ({ ...e, sets: e.sets.map((s, idx) => idx === k ? { ...s, [field]: val } : s) }));
+      const toggleDone = (i, k) => {
+        const wasDone = w.exercises[i].sets[k].done;
+        setEx(i, e => ({ ...e, sets: e.sets.map((s, idx) => {
+          if (idx !== k) return s;
+          if (s.done) return { ...s, done: false };
+          const h = hint(e, k);
+          return { weightKg: s.weightKg !== '' ? s.weightKg : (h.w || ''), reps: s.reps !== '' ? s.reps : (h.r || ''), done: true };
+        }) }));
+        if (!wasDone) { unlockAudio(); setRestSignal(s => s + 1); }
+      };
+      const addSet = (i) => setEx(i, e => { const p = e.sets[e.sets.length - 1]; return { ...e, sets: [...e.sets, { weightKg: p ? p.weightKg : '', reps: p ? p.reps : '', done: false }] }; });
+      const dropSet = (i) => setEx(i, e => e.sets.length > 1 ? { ...e, sets: e.sets.slice(0, -1) } : e);
+      const removeExercise = (i) => { if (window.confirm(`移除「${w.exercises[i].name}」？`)) setW(p => ({ ...p, exercises: p.exercises.filter((_, idx) => idx !== i) })); };
+
+      const kgOf = (e, s) => (Number(s.weightKg) || 0) * (e.unit === 'lb' ? KG_PER_LB : 1);
+      const doneSets = w.exercises.reduce((a, e) => a + e.sets.filter(s => s.done).length, 0);
+      const totalSets = w.exercises.reduce((a, e) => a + e.sets.length, 0);
+      const volume = Math.round(w.exercises.reduce((a, e) => a + e.sets.filter(s => s.done).reduce((b, s) => b + kgOf(e, s) * (Number(s.reps) || 0), 0), 0));
+      const newPRs = w.exercises.filter(e => { const pr = history[e.name]?.pr || 0; return pr > 0 && Math.max(0, ...e.sets.filter(s => s.done).map(s => kgOf(e, s))) > pr + 0.05; }).map(e => e.name);
+
+      const openFinish = () => { setDurMin(String(Math.max(1, Math.round(elapsed / 60)))); setShowFinish(true); };
+      const save = () => {
+        const start = new Date(w.startedAt);
+        const mins = Math.max(1, Math.min(600, Number(durMin) || Math.round(elapsed / 60) || 1));
+        const end = new Date(w.startedAt + mins * 60000);
+        const hm = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+        const exercises = w.exercises.map(e => ({
+          name: e.name, muscleGroup: e.muscleGroup,
+          sets: e.sets.filter(s => s.done || s.reps !== '').map(s => ({
+            weightKg: s.weightKg === '' ? '' : (e.unit === 'lb' ? (Number(s.weightKg) * KG_PER_LB).toFixed(1) : String(s.weightKg)),
+            reps: String(s.reps),
+          })),
+        })).filter(e => e.name && e.sets.length);
+        onFinish({
+          id: Date.now().toString(), category: 'Gym', subcategory: '重量訓練',
+          date: `${start.getFullYear()}-${pad2(start.getMonth() + 1)}-${pad2(start.getDate())}`,
+          startTime: hm(start), endTime: hm(end), durationMinutes: mins,
+          status: 'completed', effort: 5, performance: 7, mood, friends: [], notes, improvement: '',
+          perf: { exercises, distanceKm: '', timeMin: '', heartRate: '', distanceM: '', laps: '' },
+        });
+      };
+
+      const inputCls = "w-full h-12 rounded-xl text-center text-lg font-semibold tabular outline-none border focus:border-blue-500";
+
+      return (
+        <>
+          {/* Top bar */}
+          <div className="shrink-0 bg-white border-b border-slate-200 px-4 pb-3 safe-area-pt flex items-center gap-3">
+            <button onClick={onMinimize} aria-label="收起" className="w-11 h-11 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 text-lg">↓</button>
+            <div className="flex-1 text-center">
+              <div className="text-2xl font-bold text-slate-900 tabular leading-none">{elapsedStr}</div>
+              <div className="text-xs text-slate-400 mt-1">{doneSets}/{totalSets} 組{volume > 0 ? ` · ${volume.toLocaleString()} kg` : ''}</div>
+            </div>
+            <button onClick={openFinish} className="h-11 px-5 rounded-full bg-blue-600 text-white text-sm font-bold active:scale-95 transition-transform">完成</button>
+          </div>
+
+          {/* Exercises */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {w.exercises.length === 0 && (
+              <div className="text-center pt-10 pb-2">
+                <div className="text-5xl mb-3">🏋️</div>
+                <div className="text-lg font-bold text-slate-800">開始訓練</div>
+                <div className="text-sm text-slate-400 mt-1">加入第一個動作，或者沿用上次的課表</div>
+              </div>
+            )}
+            {w.exercises.length === 0 && lastGym && (
+              <button onClick={copyLast} className="w-full p-4 rounded-2xl bg-white border border-slate-200 text-left active:bg-slate-50">
+                <div className="text-base font-bold text-slate-800">🔁 沿用上次課表</div>
+                <div className="text-sm text-slate-400 mt-1 truncate">{lastGym.date.replace(/-/g, '/')} · {lastGym.perf.exercises.filter(e => e.name).map(e => e.name.replace(/\s*\([^)]*\)/g, '')).join('、')}</div>
+              </button>
+            )}
+
+            {w.exercises.map((e, i) => {
+              const hist = history[e.name];
+              const allDone = e.sets.length > 0 && e.sets.every(s => s.done);
+              return (
+                <div key={i} className={`bg-white rounded-2xl border ${allDone ? 'border-green-200' : 'border-slate-200'} overflow-hidden`}>
+                  <div className="flex items-center gap-3 p-3">
+                    <button onClick={() => setInfoEx({ name: e.name, group: e.muscleGroup || 'Custom' })} className="flex items-center gap-3 flex-1 min-w-0 text-left">
+                      <MuscleSvg group={e.muscleGroup} size={40} />
+                      <div className="min-w-0">
+                        <div className="text-base font-bold text-slate-900 truncate">{e.name}</div>
+                        <div className="text-xs text-slate-400 truncate">
+                          {hist?.last ? `上次 ${hist.last.sets.map(s => `${s.weightKg ? toUnit(Number(s.weightKg), e.unit) : '—'}×${s.reps || '—'}`).slice(0, 4).join('  ')}` : '第一次做 · 點擊看示範'}
+                        </div>
+                      </div>
+                    </button>
+                    <button onClick={() => setEx(i, x => ({ ...x, unit: x.unit === 'lb' ? 'kg' : 'lb' }))} className={`h-9 px-3 rounded-lg text-xs font-bold ${e.unit === 'lb' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-600'}`}>{e.unit === 'lb' ? 'LB' : 'KG'}</button>
+                    <button onClick={() => removeExercise(i)} aria-label="移除動作" className="w-9 h-9 rounded-lg text-slate-300 text-lg">✕</button>
+                  </div>
+
+                  <div className="px-3 pb-1 grid grid-cols-[32px_1fr_1fr_52px] gap-2 text-xs text-slate-400 text-center">
+                    <div>組</div><div>{e.unit === 'lb' ? 'lb' : 'kg'}</div><div>次數</div><div></div>
+                  </div>
+                  <div className="px-3 space-y-2">
+                    {e.sets.map((s, k) => {
+                      const h = hint(e, k);
+                      return (
+                        <div key={k} className="grid grid-cols-[32px_1fr_1fr_52px] gap-2 items-center">
+                          <div className="text-center text-sm font-semibold text-slate-400">{k + 1}</div>
+                          <input type="number" inputMode="decimal" value={s.weightKg} placeholder={h.w || '—'} onChange={ev => updateSet(i, k, 'weightKg', ev.target.value)} className={`${inputCls} ${s.done ? 'bg-green-50 border-green-100 text-green-800' : 'bg-slate-50 border-slate-100 text-slate-900'}`} />
+                          <input type="number" inputMode="numeric" value={s.reps} placeholder={h.r || '—'} onChange={ev => updateSet(i, k, 'reps', ev.target.value)} className={`${inputCls} ${s.done ? 'bg-green-50 border-green-100 text-green-800' : 'bg-slate-50 border-slate-100 text-slate-900'}`} />
+                          <button onClick={() => toggleDone(i, k)} aria-label={s.done ? '取消完成' : '完成此組'} className={`h-12 rounded-xl flex items-center justify-center text-xl font-bold active:scale-95 transition-transform ${s.done ? 'bg-green-500 text-white' : 'bg-slate-100 text-slate-300'}`}>✓</button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex gap-2 p-3">
+                    <button onClick={() => addSet(i)} className="flex-1 h-11 rounded-xl bg-slate-50 text-sm font-medium text-slate-600 active:bg-slate-100">＋ 加一組</button>
+                    {e.sets.length > 1 && <button onClick={() => dropSet(i)} className="h-11 px-4 rounded-xl bg-slate-50 text-sm font-medium text-slate-400 active:bg-slate-100">− 減一組</button>}
+                  </div>
+                </div>
+              );
+            })}
+
+            <button onClick={() => setShowPicker(true)} className="w-full h-14 rounded-2xl border-2 border-dashed border-slate-300 text-base font-bold text-slate-500 active:bg-white">＋ 加動作</button>
+            <button onClick={() => { if (window.confirm('放棄今次訓練？已輸入的內容會刪除。')) onDiscard(); }} className="w-full py-3 text-sm text-red-400">放棄訓練</button>
+          </div>
+
+          {/* Rest timer */}
+          <div className="shrink-0 px-3 pt-2 bg-slate-50" style={{ paddingBottom: 'max(10px, env(safe-area-inset-bottom))' }}>
+            <RestTimer signal={restSignal} />
+          </div>
+
+          {showPicker && <ExercisePicker onSelect={(name, group) => { addExercise(name, group); setShowPicker(false); }} onClose={() => setShowPicker(false)} />}
+          {infoEx && <ExerciseInfoSheet exercise={infoEx} onClose={() => setInfoEx(null)} />}
+
+          {showFinish && (
+            <div className="absolute inset-0 z-40 flex flex-col justify-end" style={{ background: 'rgba(15,23,42,0.5)' }} onClick={() => setShowFinish(false)}>
+              <div className="bg-white rounded-t-3xl p-5 space-y-4" style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }} onClick={ev => ev.stopPropagation()}>
+                <div className="text-xl font-bold text-slate-900">完成訓練 🎉</div>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="bg-slate-50 rounded-2xl p-3"><div className="text-xl font-bold text-slate-900 tabular">{w.exercises.length}</div><div className="text-xs text-slate-400">動作</div></div>
+                  <div className="bg-slate-50 rounded-2xl p-3"><div className="text-xl font-bold text-slate-900 tabular">{doneSets}</div><div className="text-xs text-slate-400">完成組數</div></div>
+                  <div className="bg-slate-50 rounded-2xl p-3"><div className="text-xl font-bold text-slate-900 tabular">{volume.toLocaleString()}</div><div className="text-xs text-slate-400">總重量 kg</div></div>
+                </div>
+                {newPRs.length > 0 && <div className="bg-amber-50 text-amber-700 rounded-2xl p-3 text-sm font-medium">🏆 新 PR：{newPRs.join('、')}</div>}
+                {doneSets < totalSets && <div className="text-xs text-slate-400">有 {totalSets - doneSets} 組未剔。未剔而且沒有填次數的組不會儲存。</div>}
+                <div className="flex items-center gap-3">
+                  <label className="text-sm text-slate-500 w-20">時長（分鐘）</label>
+                  <input type="number" inputMode="numeric" value={durMin} onChange={ev => setDurMin(ev.target.value)} className="flex-1 h-12 rounded-xl bg-slate-50 border border-slate-100 text-center text-lg font-semibold outline-none" />
+                </div>
+                <div className="flex justify-between">
+                  {['🤩', '😊', '😐', '😫', '😡'].map(m => (
+                    <button key={m} onClick={() => setMood(m)} className={`w-12 h-12 rounded-2xl text-2xl ${mood === m ? 'bg-blue-50 ring-2 ring-blue-500' : 'opacity-40'}`}>{m}</button>
+                  ))}
+                </div>
+                <textarea value={notes} onChange={ev => setNotes(ev.target.value)} placeholder="備註（可留空）" className="w-full h-20 p-3 rounded-xl bg-slate-50 border border-slate-100 text-base outline-none resize-none" />
+                <div className="flex gap-2">
+                  <button onClick={() => setShowFinish(false)} className="h-13 px-5 py-3.5 rounded-2xl bg-slate-100 text-sm font-bold text-slate-600">繼續練</button>
+                  <button onClick={save} className="flex-1 py-3.5 rounded-2xl bg-blue-600 text-white text-base font-bold active:scale-[0.98] transition-transform">儲存訓練</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      );
+    };
+
+    const Form = ({ onSave, onCancel, onDelete, onCopy, initData, logs, defaultDate, defaultCategory }) => {
       const [data, setData] = useState(() => {
+        const cat0 = CATEGORIES.find(c => c.value === defaultCategory) || CATEGORIES[0];
+        // Prefill from the last time this sport was logged (same type, time and length)
+        const prev = !initData && [...(logs || [])].filter(l => l.category === cat0.value && (l.status === 'completed' || !l.status)).sort((a, b) => (a.date < b.date ? 1 : -1))[0];
         const defaults = {
-            category: 'Gym',
-            subcategory: '重量訓練',
+            category: cat0.value,
+            subcategory: prev?.subcategory || (cat0.value === 'Gym' ? '重量訓練' : cat0.subcategories[0]),
             date: defaultDate || getLocalTodayString(),
-            startTime: '18:00',
-            endTime: '19:00',
-            durationMinutes: 60,
+            startTime: prev?.startTime || '18:00',
+            endTime: prev?.endTime || '19:00',
+            durationMinutes: prev?.durationMinutes || 60,
             status: 'completed', // 'planned' or 'completed'
             effort: 5, 
             performance: 7, 
@@ -1914,6 +2301,7 @@
       const [photo, setPhoto] = useState(initData?.photo || null);
       const [photoRemoved, setPhotoRemoved] = useState(false);
       const [restSignal, setRestSignal] = useState(0);
+      const [formInfoEx, setFormInfoEx] = useState(null);
       const [showExPicker, setShowExPicker] = useState(false);
       const [exPickerIdx, setExPickerIdx] = useState(null);
       const [showExtra, setShowExtra] = useState(!!(initData?.friends?.length || initData?.notes || initData?.improvement || initData?.photo));
@@ -2333,6 +2721,7 @@
                               className={`flex-shrink-0 px-2 py-1 rounded-lg text-[10px] font-black border transition-all ${isLb?'bg-orange-100 text-orange-600 border-orange-200':'bg-slate-100 text-slate-500 border-slate-200'}`}>
                               {isLb ? 'LB' : 'KG'}
                             </button>
+                            {ex.name && <button type="button" onClick={()=>setFormInfoEx({name: ex.name, group: ex.muscleGroup || findMuscleGroup(ex.name) || 'Custom'})} className="w-7 h-7 flex-shrink-0 flex items-center justify-center rounded-full bg-white border border-slate-100 text-slate-400 text-xs font-black">ℹ</button>}
                             <button type="button" onClick={()=>removeEx(i)} className="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-red-400 font-bold text-lg flex-shrink-0">✕</button>
                           </div>
                           {/* Sets table */}
@@ -2409,6 +2798,7 @@
           </button>
 
           {/* Exercise Picker Modal */}
+          {formInfoEx && <ExerciseInfoSheet exercise={formInfoEx} onClose={()=>setFormInfoEx(null)} />}
           {showExPicker && (
             <ExercisePicker
               onSelect={(name, group) => {
@@ -2647,7 +3037,6 @@
 
        return (
          <div className="p-6 animate-slide-up space-y-6">
-           <h2 className="text-2xl font-black text-slate-800">設定</h2>
            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center gap-4">
              <div className="w-20 h-20 rounded-full bg-slate-100 flex items-center justify-center text-3xl overflow-hidden ring-4 ring-slate-50 shadow-inner">
                 {user?.photoURL ? <img src={user.photoURL} alt="User" className="w-full h-full object-cover" /> : '👤'}
@@ -2842,7 +3231,6 @@
 
       return (
         <div className="p-6 animate-slide-up pb-24">
-           <h2 className="text-2xl font-black text-slate-800 mb-6">好友榜單</h2>
            {sorted.length === 0 ?
              <div className="text-center py-10 opacity-50">
                 <div className="text-4xl mb-2">👥</div>
@@ -2876,7 +3264,8 @@
     };
 
     const App = () => {
-      const [view, setView] = useState('dashboard');
+      // Reopening the app mid-workout goes straight back to the workout
+      const [view, setView] = useState(() => localStorage.getItem(ACTIVE_WORKOUT_KEY) ? 'workout' : 'dashboard');
       const [friendsKey, setFriendsKey] = useState(0);
       const [logs, setLogs] = useState(() => {
         try {
@@ -2885,6 +3274,8 @@
       });
       const [editLog, setEditLog] = useState(null);
       const [calendarDate, setCalendarDate] = useState(null);
+      const [quickCategory, setQuickCategory] = useState(null);
+      const [workoutActive, setWorkoutActive] = useState(() => !!localStorage.getItem(ACTIVE_WORKOUT_KEY));
       const [user, setUser] = useState(null);
       const [status, setStatus] = useState('初始化...');
       
@@ -3008,7 +3399,7 @@
                 hydratePhotos(merged, u.uid);
               } catch (e) {
                 console.error('Sync error:', e);
-                setStatus(e.photoOnly ? '⚠️ ' + e.message : '⚠️ 同步失敗：' + (e.code || e.message));
+                setStatus(e.photoOnly ? '⚠️ 紀錄已同步，相片未同步（見設定）' : '⚠️ 同步失敗：' + (e.code || e.message));
               }
             }, (e) => { console.error(e); setStatus('連線錯誤：' + (e.code || e.message)); });
           } else {
@@ -3162,7 +3553,7 @@
           try { await pushCloud(stamped, deleted); setStatus('已連線'); }
           catch (e) {
             console.error('Cloud sync failed:', e);
-            setStatus(e.photoOnly ? '⚠️ ' + e.message : '⚠️ 同步失敗（已存本機）：' + (e.code || e.message));
+            setStatus(e.photoOnly ? '⚠️ 紀錄已同步，相片未同步（見設定）' : '⚠️ 同步失敗（已存本機）：' + (e.code || e.message));
           }
         }
       };
@@ -3254,12 +3645,26 @@
             setFriendsKey(k => k + 1);
           }
           setView(v);
-        }} user={user} status={status} onAuth={handleAuth} onAdd={() => { setEditLog(null); setCalendarDate(null); setView('add'); }}>
+        }} user={user} status={status}
+          workoutActive={workoutActive}
+          onStartWorkout={() => { setWorkoutActive(true); setView('workout'); }}
+          onQuickLog={(cat) => { setEditLog(null); setCalendarDate(null); setQuickCategory(cat); setView('add'); }}>
+          {view === 'workout' && (
+            <WorkoutSession
+              logs={logs}
+              onMinimize={() => setView('dashboard')}
+              onDiscard={() => { localStorage.removeItem(ACTIVE_WORKOUT_KEY); setWorkoutActive(false); setView('dashboard'); }}
+              onFinish={(log) => { localStorage.removeItem(ACTIVE_WORKOUT_KEY); setWorkoutActive(false); updateLogs([log, ...logsRef.current]); setView('dashboard'); }}
+            />
+          )}
           {view === 'dashboard' && (
              <Dashboard
                 logs={logs}
                 setView={setView}
                 onEdit={(l)=>{setEditLog(l); setView('add');}}
+                workoutActive={workoutActive}
+                onStartWorkout={() => { setWorkoutActive(true); setView('workout'); }}
+                onQuickLog={(cat) => { setEditLog(null); setCalendarDate(null); setQuickCategory(cat); setView('add'); }}
                 aiAdvice={aiAdvice}
                 aiLoading={aiLoading}
                 onRefreshAi={() => generateAiAdvice(logs, true)}
@@ -3268,9 +3673,9 @@
              />
           )}
           {view === 'trends' && <Trends logs={logs} />}
-          {view === 'calendar' && <Calendar logs={logs} onEdit={(l)=>{setEditLog(l); setCalendarDate(null); setView('add');}} onAddForDate={(date)=>{setEditLog(null); setCalendarDate(date); setView('add');}} onWeekPlan={()=>setView('weekplanner')} />}
+          {view === 'calendar' && <Calendar logs={logs} onEdit={(l)=>{setEditLog(l); setCalendarDate(null); setView('add');}} onAddForDate={(date)=>{setEditLog(null); setQuickCategory(null); setCalendarDate(date); setView('add');}} onWeekPlan={()=>setView('weekplanner')} />}
           {view === 'friends' && <FriendsView key={friendsKey} logs={logs} />}
-          {view === 'add' && <Form onSave={handleSave} onCancel={()=>{setEditLog(null); setCalendarDate(null); setView('dashboard');}} onDelete={handleDelete} onCopy={handleCopy} initData={editLog} logs={logs} defaultDate={calendarDate} />}
+          {view === 'add' && <Form onSave={handleSave} onCancel={()=>{setEditLog(null); setCalendarDate(null); setView('dashboard');}} onDelete={handleDelete} onCopy={handleCopy} initData={editLog} logs={logs} defaultDate={calendarDate} defaultCategory={quickCategory || (calendarDate ? null : 'Gym')} key={(editLog?.id || 'new') + (quickCategory || '')} />}
           {view === 'weekplanner' && <WeekPlanner onBatchSave={handleBatchSave} onCancel={()=>setView('dashboard')} />}
           {view === 'settings' && <Settings user={user} handleAuth={handleAuth} setView={setView} onKeyChanged={() => { setAiAdvice(null); setAiLoading(false); }} logs={logs} onForceSync={forceSync} onImport={(arr) => updateLogs(mergeLogs(logsRef.current, arr, readJson(DELETED_KEY, {})))} />}
         </Layout>
@@ -3294,9 +3699,15 @@
       function update() {
         if (window.visualViewport) {
           var vv = window.visualViewport;
-          rootEl.style.top = vv.offsetTop + 'px';
-          rootEl.style.height = vv.height + 'px';
-          document.documentElement.style.setProperty('--app-height', vv.height + 'px');
+          var h = vv.height, top = vv.offsetTop;
+          // Home-screen (standalone) iOS under-reports the viewport height, leaving an
+          // empty strip under the nav. With no keyboard open, use the real screen height.
+          var standalone = window.navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+          var portrait = window.innerWidth < window.innerHeight;
+          if (standalone && portrait && screen.height && h > screen.height - 140 && h < screen.height) { h = screen.height; top = 0; }
+          rootEl.style.top = top + 'px';
+          rootEl.style.height = h + 'px';
+          document.documentElement.style.setProperty('--app-height', h + 'px');
         } else {
           document.documentElement.style.setProperty('--app-height', window.innerHeight + 'px');
         }
