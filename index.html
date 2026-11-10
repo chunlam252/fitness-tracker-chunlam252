@@ -112,22 +112,87 @@
     import { initializeApp, getApps, getApp } from 'firebase/app';
     import { getFirestore, doc, setDoc, onSnapshot, getDoc } from 'firebase/firestore';
     import { getAuth, onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, GoogleAuthProvider } from 'firebase/auth';
-    // Gemini via direct REST API (no SDK needed)
-    const geminiGenerate = async (prompt, key) => {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${key}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(JSON.stringify(err));
-      }
-      const data = await res.json();
-      return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    };
     import { parse } from "marked";
+
+    // ── Gemini via direct REST API (no SDK) ─────────────────────────────
+    // Model names change often, so we ask the API which Flash models this key
+    // can use (cached 24h), then try them newest-first with retry on 503/429.
+    const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+    const GEMINI_MODELS_CACHE = 'fittrack_gemini_models';
+    const GEMINI_FALLBACK_MODELS = ['gemini-3.8-flash', 'gemini-2.5-flash'];
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+    const friendlyGeminiError = (e) => {
+      const msg = String(e?.message || e);
+      if (/API key not valid|API_KEY_INVALID|PERMISSION_DENIED|401|403/i.test(msg)) return '🔑 API Key 無效或已被停用，請到設定重新貼上新 Key。';
+      if (/429|RESOURCE_EXHAUSTED|quota/i.test(msg)) return '⏳ 今日 AI 用量已滿，請稍後再試。';
+      if (/503|UNAVAILABLE|overload|high demand/i.test(msg)) return '😴 Google AI 暫時太多人用，已自動重試仍然失敗，按 🔄 再試一次。';
+      if (/Failed to fetch|NetworkError|network/i.test(msg)) return '📡 網絡連線失敗，請檢查網絡。';
+      return '❌ AI 暫時用唔到：' + msg.slice(0, 120);
+    };
+
+    const getGeminiModelList = async (key, force = false) => {
+      try {
+        const c = JSON.parse(localStorage.getItem(GEMINI_MODELS_CACHE) || 'null');
+        if (!force && c && Date.now() - c.t < 24*3600*1000 && c.models?.length) return c.models;
+      } catch {}
+      try {
+        const res = await fetch(`${GEMINI_BASE}/models?pageSize=200`, { headers: { 'x-goog-api-key': key } });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        const models = (data.models || [])
+          .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+          .map(m => m.name.replace(/^models\//, ''))
+          .filter(n => /flash/.test(n) && !/image|tts|live|audio|embed|thinking-exp|vision|robotics|computer-use/.test(n))
+          // prefer stable over preview/exp, then newest version first
+          .sort((a, b) => {
+            const pa = /preview|exp/.test(a) ? 1 : 0, pb = /preview|exp/.test(b) ? 1 : 0;
+            if (pa !== pb) return pa - pb;
+            return b.localeCompare(a, undefined, { numeric: true });
+          })
+          .slice(0, 4);
+        if (models.length) localStorage.setItem(GEMINI_MODELS_CACHE, JSON.stringify({ t: Date.now(), models }));
+        return models.length ? models : GEMINI_FALLBACK_MODELS;
+      } catch (e) {
+        if (/API key not valid|API_KEY_INVALID|PERMISSION_DENIED/i.test(String(e.message))) throw e;
+        return GEMINI_FALLBACK_MODELS;
+      }
+    };
+
+    const geminiGenerate = async (prompt, key) => {
+      let models = await getGeminiModelList(key);
+      let lastErr;
+      for (let pass = 0; pass < 2; pass++) {
+        for (const model of models) {
+          // up to 3 tries per model for temporary overload
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              const res = await fetch(`${GEMINI_BASE}/models/${model}:generateContent`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+                body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+              });
+              if (res.ok) {
+                const data = await res.json();
+                const text = data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
+                if (text) return text;
+                lastErr = new Error('Empty response');
+                break;
+              }
+              const errText = await res.text();
+              lastErr = new Error(`${res.status} ${errText}`);
+              if (res.status === 503 || res.status === 429) { await sleep(1000 * (attempt + 1)); continue; }
+              break; // 404 / 400 / 403 → next model
+            } catch (e) { lastErr = e; await sleep(800); }
+          }
+        }
+        // every model failed: refresh the model list once (a name may have been retired)
+        if (pass === 0) {
+          try { models = await getGeminiModelList(key, true); } catch (e) { lastErr = e; break; }
+        }
+      }
+      throw lastErr;
+    };
 
     const GEMINI_API_KEY_STORAGE = 'fittrack_gemini_key';
     const getGeminiKey = () => localStorage.getItem(GEMINI_API_KEY_STORAGE) || '';
@@ -184,6 +249,59 @@
       } catch (e) { console.error("Firebase init error:", e); return null; }
     };
 
+    // ── SYNC v2 helpers ──────────────────────────────────────────────────
+    // Why: Firestore documents are capped at 1MB. Photos (base64) inside the
+    // logs array made the cloud doc too big, so newer saves silently failed.
+    // Now: photos live in IndexedDB locally + one small Firestore doc each;
+    // the main doc holds slim logs only. Logs merge per-id (newest `_u` wins)
+    // and deletions are tombstones, so two devices can't wipe each other.
+    const DELETED_KEY = STORAGE_KEY + '_deleted';
+    const PHOTO_SYNCED_KEY = 'fittrack_photos_synced';
+
+    const idb = (() => {
+      let dbp;
+      const open = () => dbp || (dbp = new Promise((res, rej) => {
+        const r = indexedDB.open('fittrack', 1);
+        r.onupgradeneeded = () => r.result.createObjectStore('photos');
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+      }));
+      const tx = async (mode, fn) => { const db = await open(); return new Promise((res, rej) => { const t = db.transaction('photos', mode); const rq = fn(t.objectStore('photos')); t.oncomplete = () => res(rq?.result); t.onerror = () => rej(t.error); }); };
+      return {
+        get: (k) => tx('readonly', s => s.get(k)).catch(() => undefined),
+        set: (k, v) => tx('readwrite', s => s.put(v, k)),
+        del: (k) => tx('readwrite', s => s.delete(k)).catch(() => {}),
+      };
+    })();
+
+    const readJson = (k, fallback) => { try { return JSON.parse(localStorage.getItem(k)) ?? fallback; } catch { return fallback; } };
+
+    // logs (may contain .photo) → { slim (no photo, hasPhoto flag), photos {id: dataUrl} }
+    const splitPhotos = (logs) => {
+      const photos = {};
+      const slim = logs.map(l => {
+        if (!l.photo) return l;
+        photos[l.id] = l.photo;
+        const { photo, ...rest } = l;
+        return { ...rest, hasPhoto: true };
+      });
+      return { slim, photos };
+    };
+
+    // Merge two log arrays by id. Newer `_u` wins; tombstones in `deleted` {id: ts} remove logs.
+    const mergeLogs = (a, b, deleted) => {
+      const map = new Map();
+      [...a, ...b].forEach(l => {
+        const cur = map.get(l.id);
+        if (!cur) { map.set(l.id, l); return; }
+        const keep = (l._u || '') > (cur._u || '') ? l : cur;
+        // never lose the photo flag/data when one side is slim
+        map.set(l.id, { ...keep, ...(keep.photo || keep.hasPhoto ? {} : (cur.hasPhoto || l.hasPhoto ? { hasPhoto: true } : {})) });
+      });
+      deleted && Object.keys(deleted).forEach(id => map.delete(id));
+      return [...map.values()].sort((x, y) => (x.date < y.date ? 1 : x.date > y.date ? -1 : 0));
+    };
+
     // --- AI COMPONENT (Collapsible & Alien Icon) ---
     const SmartCoach = ({ advice, loading, onRefresh, logs }) => {
       const [expanded, setExpanded] = useState(false);
@@ -235,7 +353,7 @@
               setChatMessages(prev => [...prev, { role: 'ai', text: responseText }]);
           } catch (error) {
               console.error("Chat AI Error:", error);
-              setChatMessages(prev => [...prev, { role: 'ai', text: "抱歉，我暫時無法回答你的問題，請稍後再試。" }]);
+              setChatMessages(prev => [...prev, { role: 'ai', text: friendlyGeminiError(error) }]);
           } finally {
               setIsChatting(false);
           }
@@ -378,8 +496,7 @@
 
     // --- MAIN APP COMPONENTS ---
 
-    const Layout = ({ children, activeView, setView, user, status, onAuth }) => {
-      const [showPlusMenu, setShowPlusMenu] = React.useState(false);
+    const Layout = ({ children, activeView, setView, user, status, onAuth, onAdd }) => {
       return (
         <div className="flex flex-col h-full max-w-md mx-auto bg-white shadow-2xl relative overflow-hidden border-x border-slate-100">
           <header className="px-6 pb-4 bg-white/90 backdrop-blur border-b border-slate-100 z-30 flex justify-between items-center shrink-0 safe-area-pt">
@@ -399,28 +516,14 @@
               }
             </button>
           </header>
-          <main className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50 relative" onClick={()=>showPlusMenu && setShowPlusMenu(false)}>{children}</main>
+          <main className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50 relative">{children}</main>
           <nav className="shrink-0 bg-white border-t border-slate-100 grid grid-cols-5 items-end pb-6 pt-2 px-2 z-30 safe-area-pb shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.05)] relative">
-            {showPlusMenu && (
-              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 flex gap-2 z-40">
-                <button onClick={()=>{setShowPlusMenu(false); setView('weekplanner');}}
-                  className="flex flex-col items-center gap-1 bg-white rounded-2xl shadow-xl border px-4 py-3 active:scale-95 transition-all">
-                  <span className="text-2xl">📅</span>
-                  <span className="text-[10px] font-bold text-slate-700 whitespace-nowrap">週計劃</span>
-                </button>
-                <button onClick={()=>{setShowPlusMenu(false); setView('add');}}
-                  className="flex flex-col items-center gap-1 bg-white rounded-2xl shadow-xl border px-4 py-3 active:scale-95 transition-all">
-                  <span className="text-2xl">✍️</span>
-                  <span className="text-[10px] font-bold text-slate-700 whitespace-nowrap">單次紀錄</span>
-                </button>
-              </div>
-            )}
             <NavBtn active={activeView === 'dashboard'} onClick={() => setView('dashboard')} icon="home" label="主頁" />
             <NavBtn active={activeView === 'trends'} onClick={() => setView('trends')} icon="chart" label="統計" />
             <div className="flex justify-center -mt-12 relative z-10 pointer-events-none">
-              <button onClick={() => setShowPlusMenu(p => !p)} className="pointer-events-auto flex flex-col items-center group active:scale-95 transition-transform">
-                <div className={`w-16 h-16 rounded-full flex items-center justify-center text-white shadow-xl border-[6px] border-white ring-1 ring-slate-100 transition-all ${showPlusMenu ? 'bg-slate-700 shadow-slate-200' : 'bg-blue-600 shadow-blue-200'}`}>
-                  <span className="text-2xl" style={{transform: showPlusMenu ? 'rotate(45deg)' : 'none', display:'inline-block', transition:'transform 0.2s'}}>+</span>
+              <button onClick={onAdd} className="pointer-events-auto flex flex-col items-center group active:scale-95 transition-transform">
+                <div className="w-16 h-16 rounded-full flex items-center justify-center text-white shadow-xl border-[6px] border-white ring-1 ring-slate-100 bg-blue-600 shadow-blue-200">
+                  <span className="text-2xl">+</span>
                 </div>
                 <span className="text-[10px] font-bold text-blue-600 mt-1">紀錄</span>
               </button>
@@ -464,7 +567,22 @@
         startOfWeek.setHours(0,0,0,0);
         return d >= startOfWeek;
       }).length;
-      
+
+      // Weekly goal (tap the card to change)
+      const [goal, setGoal] = useState(() => Number(localStorage.getItem(WEEKLY_GOAL_KEY)) || 3);
+      const cycleGoal = () => { const g = goal >= 7 ? 1 : goal + 1; setGoal(g); localStorage.setItem(WEEKLY_GOAL_KEY, String(g)); };
+
+      // Muscle groups neglected the longest (Gym history only)
+      const neglected = (() => {
+        const md = muscleDays(completedLogs);
+        if (!Object.keys(md).length) return [];
+        return MUSCLE_GROUPS.map(g => {
+          const dates = md[g.key] ? [...md[g.key]].sort() : [];
+          return { ...g, since: dates.length ? daysSince(dates[dates.length - 1]) : null };
+        }).filter(g => g.since === null || g.since >= 7)
+          .sort((a, b) => (b.since ?? 999) - (a.since ?? 999)).slice(0, 3);
+      })();
+
       const last5 = completedLogs.sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,5);
       const moodMap = { '🤩': 5, '😊': 4, '😐': 3, '😫': 2, '😡': 1 };
       let moodText = '暫無';
@@ -553,10 +671,13 @@
           </div>
 
           <div className="grid grid-cols-3 gap-3">
-             <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between h-24">
-               <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">本週</div>
-               <div className="text-2xl font-black text-slate-800">{thisWeekCount}<span className="text-xs font-bold text-slate-400 ml-1">次</span></div>
-             </div>
+             <button onClick={cycleGoal} className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between h-24 text-left active:scale-95 transition-transform">
+               <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">本週目標 <span className="normal-case opacity-60">(點擊改)</span></div>
+               <div>
+                 <div className="text-2xl font-black text-slate-800">{thisWeekCount}<span className="text-xs font-bold text-slate-400 ml-1">/ {goal} 次{thisWeekCount >= goal ? ' 🎉' : ''}</span></div>
+                 <div className="h-1.5 bg-slate-100 rounded-full mt-1.5 overflow-hidden"><div className={`h-full rounded-full ${thisWeekCount >= goal ? 'bg-green-500' : 'bg-blue-500'}`} style={{width: `${Math.min(100, (thisWeekCount / goal) * 100)}%`}}></div></div>
+               </div>
+             </button>
              <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between h-24">
                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">連續</div>
                <div className="text-2xl font-black text-slate-800">{streak > 0 ? `🔥${streak}` : '—'}<span className="text-xs font-bold text-slate-400 ml-1">{streak > 0 ? '天' : ''}</span></div>
@@ -570,6 +691,21 @@
           {restAlert && (
             <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 text-xs font-bold text-amber-700">
               ⚠️ {restAlert}
+            </div>
+          )}
+
+          {neglected.length > 0 && (
+            <div className="bg-white border border-slate-100 rounded-3xl shadow-sm p-4">
+              <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">🏋️ 好耐冇練</div>
+              <div className="flex gap-2">
+                {neglected.map(g => (
+                  <div key={g.key} className={`flex-1 rounded-2xl p-3 text-center ${g.since === null || g.since >= 14 ? 'bg-red-50' : 'bg-amber-50'}`}>
+                    <div className="flex justify-center"><MuscleSvg group={g.key} size={28}/></div>
+                    <div className="text-xs font-black text-slate-700 mt-1">{g.label}</div>
+                    <div className={`text-[11px] font-black ${g.since === null || g.since >= 14 ? 'text-red-500' : 'text-amber-600'}`}>{g.since === null ? '未有紀錄' : `${g.since} 日`}</div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -610,7 +746,7 @@
                         {l.durationMinutes && !l.startTime && <span>• {l.durationMinutes} min</span>}
                         {!isPlanned && <span>• {l.mood || 'N/A'}</span>}
                       </div>
-                      {l.photo && <span className="text-[10px] text-slate-400 mt-1 block">📸 有相片</span>}
+                      {(l.photo || l.hasPhoto) && <span className="text-[10px] text-slate-400 mt-1 block">📸 有相片</span>}
                     </div>
                     {isPlanned && (
                         <div className="absolute right-4 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full border border-slate-200 flex items-center justify-center text-slate-300 group-hover:bg-green-500 group-hover:text-white group-hover:border-transparent transition-all">
@@ -1137,8 +1273,38 @@
           </section>
 
 
+          {(() => {
+            const allMd = muscleDays(completed);
+            if (!Object.keys(allMd).length) return null;
+            const perMd = muscleDays(filteredLogs);
+            const rows = MUSCLE_GROUPS.map(g => {
+              const dates = allMd[g.key] ? [...allMd[g.key]].sort() : [];
+              return { ...g, count: perMd[g.key] ? perMd[g.key].size : 0, since: dates.length ? daysSince(dates[dates.length - 1]) : null };
+            });
+            const maxCount = Math.max(...rows.map(r => r.count), 1);
+            return (
+              <section>
+                <h3 className="text-sm font-black text-slate-800 mb-4 uppercase tracking-widest">肌群訓練日 <span className="text-[10px] font-normal text-slate-400 lowercase ml-1">({filter === 'month' ? '本月' : filter === 'year' ? '本年' : '全部'}次數 · 距上次)</span></h3>
+                <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-3">
+                  {rows.map(r => {
+                    const stale = r.since === null || r.since >= 14 ? 'text-red-500' : r.since >= 7 ? 'text-amber-600' : 'text-green-600';
+                    return (
+                      <div key={r.key} className="flex items-center gap-3">
+                        <MuscleSvg group={r.key} size={28}/>
+                        <div className="w-10 text-xs font-black text-slate-700">{r.label}</div>
+                        <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-indigo-400 rounded-full" style={{width: `${(r.count / maxCount) * 100}%`}}></div></div>
+                        <div className="w-8 text-right text-xs font-black text-slate-600">{r.count}<span className="text-[9px] text-slate-400">日</span></div>
+                        <div className={`w-16 text-right text-[10px] font-black ${stale}`}>{r.since === null ? '從未練' : r.since === 0 ? '今日' : `${r.since} 日前`}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })()}
+
           <section>
-               <h3 className="text-sm font-black text-slate-800 mb-4 uppercase tracking-widest">項目分佈 <span className="text-[10px] font-normal text-slate-400 lowercase ml-1">(點擊查看詳情)</span></h3>
+               <h3 className="text-sm font-black text-slate-800 mb-4 uppercase tracking-widest">項目分佈<span className="text-[10px] font-normal text-slate-400 lowercase ml-1">(點擊查看詳情)</span></h3>
                {breakdown.length > 0 ? (
                 <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4">
                  {breakdown.map((item) => {
@@ -1172,7 +1338,7 @@
       );
     }
 
-    const Calendar = ({ logs, onEdit, onAddForDate }) => {
+    const Calendar = ({ logs, onEdit, onAddForDate, onWeekPlan }) => {
       const [date, setDate] = useState(new Date());
       const [sel, setSel] = useState(getLocalTodayString());
 
@@ -1211,9 +1377,10 @@
                <button onClick={()=>setDate(new Date(date.getFullYear(),date.getMonth()+1,1))} className="p-2 border rounded-lg text-slate-500 hover:bg-slate-50">→</button>
              </div>
            </div>
-           <div className="flex gap-4 mb-4 text-xs font-bold text-slate-500">
+           <div className="flex items-center gap-4 mb-4 text-xs font-bold text-slate-500">
              <span>✅ {monthCount} 次</span>
              <span>⏱️ {monthHours} hr</span>
+             {onWeekPlan && <button onClick={onWeekPlan} className="ml-auto bg-blue-50 text-blue-600 border border-blue-100 px-3 py-1.5 rounded-xl font-black active:scale-95 transition-transform">📅 週計劃</button>}
            </div>
 
            <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 grid grid-cols-7 gap-1">
@@ -1423,6 +1590,29 @@
       return '';
     };
 
+    // Which muscle groups were trained on which dates (completed Gym logs only)
+    const MUSCLE_GROUPS = [
+      { key: 'Legs', label: '腿' }, { key: 'Chest', label: '胸' }, { key: 'Back', label: '背' },
+      { key: 'Shoulders', label: '肩' }, { key: 'Arms', label: '手臂' }, { key: 'Core', label: '核心' },
+    ];
+    const muscleDays = (logs) => {
+      const byGroup = {}; // key -> Set(dates)
+      logs.filter(l => (l.status === 'completed' || !l.status) && l.category === 'Gym').forEach(l => {
+        (l.perf?.exercises || []).forEach(ex => {
+          const g = ex.muscleGroup || findMuscleGroup(ex.name);
+          if (!g || !ex.name) return;
+          (byGroup[g] = byGroup[g] || new Set()).add(l.date);
+        });
+      });
+      return byGroup;
+    };
+    const daysSince = (dateStr) => {
+      const a = new Date(dateStr.replace(/-/g, '/')); a.setHours(0, 0, 0, 0);
+      const b = new Date(); b.setHours(0, 0, 0, 0);
+      return Math.round((b - a) / 86400000);
+    };
+    const WEEKLY_GOAL_KEY = 'fittrack_weekly_goal';
+
     // Muscle group SVG icons — body silhouette with highlighted area
     const MuscleSvg = ({ group, size = 40 }) => {
       const base = '#dde3ed';
@@ -1474,12 +1664,17 @@
     // ── Exercise Info Sheet (Gemini-powered) ───────────────────────────────
     const ExerciseInfoSheet = ({ exercise, onClose }) => {
       const [info, setInfo] = React.useState(null);
-      const [loading, setLoading] = React.useState(true);
+      const cacheKey = 'fittrack_exinfo_' + exercise.name.replace(/[^a-zA-Z0-9]/g,'_');
+      const hasCache = (() => { try { return !!localStorage.getItem(cacheKey); } catch { return false; } })();
+      const [wantAI, setWantAI] = React.useState(hasCache); // AI text only on demand → saves tokens
+      const [loading, setLoading] = React.useState(false);
+      const q = encodeURIComponent(exercise.name.replace(/\s*\([^)]*\)/g, '').trim() + ' proper form');
 
       React.useEffect(() => {
-        const cacheKey = 'fittrack_exinfo_' + exercise.name.replace(/[^a-zA-Z0-9]/g,'_');
+        if (!wantAI) return;
+        setLoading(true);
         try {
-          const cached = sessionStorage.getItem(cacheKey);
+          const cached = localStorage.getItem(cacheKey);
           if (cached) { setInfo(JSON.parse(cached)); setLoading(false); return; }
         } catch {}
         (async () => {
@@ -1489,13 +1684,13 @@
 {"zhName":"Chinese name","muscles":["muscle1","muscle2"],"howTo":"2-3 sentences how to perform correctly in Traditional Chinese","tip":"one common mistake in Traditional Chinese"}`;
             const text = (await geminiGenerate(prompt, key)).replace(/```json\n?|\n?```|```/g,'').trim();
             const data = JSON.parse(text);
-            sessionStorage.setItem(cacheKey, JSON.stringify(data));
+            localStorage.setItem(cacheKey, JSON.stringify(data));
             setInfo(data);
-          } catch {
-            setInfo({ zhName:'', muscles:[exercise.group], howTo:'暫時無法載入說明，請稍後再試。', tip:'' });
+          } catch (e) {
+            setInfo({ zhName:'', muscles:[exercise.group], howTo: friendlyGeminiError(e), tip:'' });
           } finally { setLoading(false); }
         })();
-      }, [exercise.name]);
+      }, [exercise.name, wantAI]);
 
       return (
         <div className="fixed inset-0 z-[70] flex flex-col justify-end" style={{background:'rgba(0,0,0,0.6)'}} onClick={onClose}>
@@ -1510,6 +1705,14 @@
               </div>
               <button onClick={onClose} className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 font-bold flex-shrink-0">✕</button>
             </div>
+            {/* Demo video — real movement is far clearer than text */}
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              <a href={`https://www.youtube.com/results?search_query=${q}`} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 py-3 rounded-2xl bg-red-500 text-white font-black text-sm active:scale-95 transition-transform">▶ 示範影片</a>
+              <a href={`https://www.google.com/search?tbm=isch&q=${q}`} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 py-3 rounded-2xl bg-slate-100 text-slate-700 font-black text-sm active:scale-95 transition-transform">🖼 動作圖片</a>
+            </div>
+            {!wantAI && !info && (
+              <button type="button" onClick={() => setWantAI(true)} className="w-full py-3 rounded-2xl border-2 border-dashed border-indigo-200 text-indigo-500 font-black text-sm active:scale-95 transition-transform">✨ AI 中文說明（肌群、要領、常見錯誤）</button>
+            )}
             {loading ? (
               <div className="text-center py-10 text-slate-400">
                 <div className="text-3xl mb-2 animate-pulse">🤔</div>
@@ -1625,6 +1828,57 @@
       );
     };
 
+    // ── Rest timer (between sets) ─────────────────────────────────────────
+    const audioState = { ctx: null };
+    const unlockAudio = () => { try { audioState.ctx = audioState.ctx || new (window.AudioContext || window.webkitAudioContext)(); if (audioState.ctx.state === 'suspended') audioState.ctx.resume(); } catch {} };
+    const beep = () => {
+      try {
+        const c = audioState.ctx;
+        if (c) [0, 0.25, 0.5].forEach(t => { const o = c.createOscillator(), g = c.createGain(); o.connect(g); g.connect(c.destination); o.frequency.value = 880; g.gain.value = 0.25; o.start(c.currentTime + t); o.stop(c.currentTime + t + 0.15); });
+        if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+      } catch {}
+    };
+
+    const RestTimer = ({ signal }) => {
+      const [dur, setDur] = useState(() => Number(localStorage.getItem('fittrack_rest_dur')) || 90);
+      const [endAt, setEndAt] = useState(null);
+      const [now, setNow] = useState(Date.now());
+      const fired = useRef(false);
+      const start = (d) => { fired.current = false; setEndAt(Date.now() + (d || dur) * 1000); setNow(Date.now()); };
+      useEffect(() => { if (signal > 0) start(); }, [signal]);
+      useEffect(() => { if (!endAt) return; const id = setInterval(() => setNow(Date.now()), 250); return () => clearInterval(id); }, [endAt]);
+      const left = endAt ? Math.max(0, Math.ceil((endAt - now) / 1000)) : 0;
+      useEffect(() => { if (endAt && left === 0 && !fired.current) { fired.current = true; beep(); } }, [left, endAt]);
+      const choose = (d) => { setDur(d); localStorage.setItem('fittrack_rest_dur', String(d)); unlockAudio(); start(d); };
+      const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+      const running = endAt && left > 0;
+      const done = endAt && left === 0;
+      return (
+        <div className={`sticky bottom-2 z-20 rounded-2xl shadow-lg border p-3 flex items-center gap-2 ${done ? 'bg-green-500 border-green-400 text-white' : running ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-600'}`}>
+          {running || done ? (
+            <>
+              <div className="flex-1">
+                <div className="text-[10px] font-black opacity-70">{done ? '休息完畢' : '休息中'}</div>
+                <div className="text-xl font-black tabular-nums leading-tight">{done ? '下一組 💪' : mmss(left)}</div>
+                {running && <div className="h-1 bg-white/20 rounded-full mt-1 overflow-hidden"><div className="h-full bg-white" style={{ width: `${(left / dur) * 100}%` }} /></div>}
+              </div>
+              {running && <button type="button" onClick={() => setEndAt(endAt + 15000)} className="px-3 py-2 rounded-xl bg-white/15 text-xs font-black active:scale-95">+15s</button>}
+              <button type="button" onClick={() => setEndAt(null)} className="px-3 py-2 rounded-xl bg-white/15 text-xs font-black active:scale-95">{done ? '好' : '跳過'}</button>
+            </>
+          ) : (
+            <>
+              <span className="text-xs font-black">⏱ 休息計時</span>
+              <div className="flex gap-1.5 ml-auto">
+                {[60, 90, 120, 180].map(d => (
+                  <button key={d} type="button" onClick={() => choose(d)} className={`px-2.5 py-1.5 rounded-lg text-[11px] font-black active:scale-95 ${dur === d ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500'}`}>{d >= 120 ? `${d / 60}m` : `${d}s`}</button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      );
+    };
+
     const Form = ({ onSave, onCancel, onDelete, onCopy, initData, logs, defaultDate }) => {
       const [data, setData] = useState(() => {
         const defaults = {
@@ -1658,6 +1912,8 @@
       React.useEffect(() => { if (data.category === 'Gym') setShowPerf(true); }, [data.category]);
       const [perf, setPerf] = useState(() => initData?.perf || { exercises: [], distanceKm: '', timeMin: '', heartRate: '', distanceM: '', laps: '' });
       const [photo, setPhoto] = useState(initData?.photo || null);
+      const [photoRemoved, setPhotoRemoved] = useState(false);
+      const [restSignal, setRestSignal] = useState(0);
       const [showExPicker, setShowExPicker] = useState(false);
       const [exPickerIdx, setExPickerIdx] = useState(null);
       const [showExtra, setShowExtra] = useState(!!(initData?.friends?.length || initData?.notes || initData?.improvement || initData?.photo));
@@ -1666,9 +1922,11 @@
       const getLastWeight = (exName) => {
         if (!exName || !logs) return null;
         const formDate = data.date;
-        for (let i = logs.length - 1; i >= 0; i--) {
-          if (logs[i].date >= formDate) continue;
-          const found = (logs[i].perf?.exercises || []).map(normEx).find(e => e.name === exName);
+        // newest session first (logs are not guaranteed to be in date order)
+        const byNewest = [...logs].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+        for (let i = 0; i < byNewest.length; i++) {
+          if (byNewest[i].date >= formDate) continue;
+          const found = (byNewest[i].perf?.exercises || []).map(normEx).find(e => e.name === exName);
           if (found) {
             const maxW = Math.max(...found.sets.map(s => Number(s.weightKg) || 0));
             if (maxW > 0) return maxW;
@@ -1676,6 +1934,36 @@
         }
         return null;
       };
+
+      // All-time best weight (kg) for an exercise, excluding the log being edited
+      const getPR = (exName) => {
+        if (!exName || !logs) return null;
+        let m = 0;
+        logs.forEach(l => {
+          if (l.id === initData?.id) return;
+          (l.perf?.exercises || []).map(normEx).forEach(e => {
+            if (e.name === exName) e.sets.forEach(s => { const w = Number(s.weightKg) || 0; if (w > m) m = w; });
+          });
+        });
+        return m > 0 ? m : null;
+      };
+
+      // Most recent completed Gym session with exercises (for one-tap copy)
+      const lastGym = (() => {
+        const c = (logs || []).filter(l => l.category === 'Gym' && (l.status === 'completed' || !l.status) && l.id !== initData?.id && l.date <= data.date && (l.perf?.exercises || []).some(e => e.name));
+        c.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+        return c[0] || null;
+      })();
+      const copyLastGym = () => {
+        if (!lastGym) return;
+        const ex = lastGym.perf.exercises.map(normEx).filter(e => e.name).map(e => ({
+          ...e, unit: 'kg', muscleGroup: e.muscleGroup || findMuscleGroup(e.name),
+          sets: e.sets.map(s => ({ weightKg: s.weightKg, reps: s.reps }))
+        }));
+        setPerf(p => ({ ...p, exercises: ex }));
+        setShowPerf(true);
+      };
+      const startRest = () => { unlockAudio(); setRestSignal(s => s + 1); };
 
       const compressPhoto = (file) => new Promise(resolve => {
         const reader = new FileReader();
@@ -1977,7 +2265,7 @@
                   {photo ? (
                     <div className="relative">
                       <img src={photo} alt="workout" className="w-full rounded-2xl object-cover" style={{maxHeight:'220px'}} />
-                      <button type="button" onClick={()=>setPhoto(null)} className="absolute top-2 right-2 w-8 h-8 bg-black/50 text-white rounded-full flex items-center justify-center text-sm font-bold">✕</button>
+                      <button type="button" onClick={()=>{ setPhoto(null); setPhotoRemoved(true); }} className="absolute top-2 right-2 w-8 h-8 bg-black/50 text-white rounded-full flex items-center justify-center text-sm font-bold">✕</button>
                     </div>
                   ) : (
                     <label className="flex flex-col items-center justify-center gap-2 py-5 border-2 border-dashed border-slate-200 rounded-2xl cursor-pointer active:opacity-70 transition-opacity">
@@ -2000,10 +2288,22 @@
               <div className="px-5 pb-5 space-y-4 border-t border-slate-50 pt-4">
                 {(data.category === 'Gym') && (
                   <div className="space-y-3">
+                    {perf.exercises.length === 0 && lastGym && (
+                      <button type="button" onClick={copyLastGym} className="w-full flex items-center gap-3 p-3 bg-indigo-50 border border-indigo-100 rounded-2xl text-left active:scale-[0.98] transition-transform">
+                        <span className="text-2xl">🔁</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-black text-indigo-700">複製上次 Gym</div>
+                          <div className="text-[10px] font-bold text-indigo-400 truncate">{lastGym.date.replace(/-/g,'/')} · {lastGym.perf.exercises.filter(e=>e.name).length} 個動作 · {lastGym.perf.exercises.filter(e=>e.name).slice(0,3).map(e=>e.name.replace(/\s*\([^)]*\)/g,'')).join('、')}</div>
+                        </div>
+                      </button>
+                    )}
                     {perf.exercises.map(normEx).map((ex, i) => {
                       const isLb = ex.unit === 'lb';
                       const vol = exVolume(ex);
                       const lastW = getLastWeight(ex.name);
+                      const pr = getPR(ex.name);
+                      const curMax = Math.max(0, ...ex.sets.map(s => (Number(s.weightKg) || 0) * (isLb ? 0.453592 : 1)));
+                      const newPR = !!pr && curMax > pr + 0.05;
                       return (
                         <div key={i} className="bg-slate-50 rounded-2xl p-3 space-y-2">
                           {/* Exercise name row */}
@@ -2017,12 +2317,15 @@
                               <span className="text-slate-300 text-xs flex-shrink-0">▼</span>
                             </button>
                             {/* Last session weight reference */}
-                            {lastW && (
+                            {(lastW || pr) && (
                               <div className="flex flex-col items-center flex-shrink-0">
-                                <div className="text-[8px] font-bold text-slate-400 leading-tight">上次</div>
-                                <div className="text-[11px] font-black text-indigo-500 leading-tight">
-                                  {isLb ? (lastW / 0.453592).toFixed(0) + 'lb' : lastW + 'kg'}
-                                </div>
+                                {lastW && <>
+                                  <div className="text-[8px] font-bold text-slate-400 leading-tight">上次</div>
+                                  <div className="text-[11px] font-black text-indigo-500 leading-tight">
+                                    {isLb ? (lastW / 0.453592).toFixed(0) + 'lb' : lastW + 'kg'}
+                                  </div>
+                                </>}
+                                {pr && <div className={`text-[9px] font-black leading-tight ${newPR ? 'text-amber-500' : 'text-slate-400'}`}>{newPR ? '🏆 新PR' : 'PR ' + (isLb ? (pr / 0.453592).toFixed(0) + 'lb' : pr + 'kg')}</div>}
                               </div>
                             )}
                             {/* Per-exercise KG/LB toggle */}
@@ -2053,7 +2356,7 @@
                             ))}
                           </div>
                           <div className="flex items-center justify-between pt-1">
-                            <button type="button" onClick={()=>addSet(i)} className="text-[11px] font-black text-blue-500 active:scale-95">＋ 加 Set</button>
+                            <button type="button" onClick={()=>{ addSet(i); startRest(); }} className="text-[11px] font-black text-blue-500 active:scale-95">＋ 加 Set（開始休息計時）</button>
                             {vol > 0 && <div className="text-[10px] font-black text-blue-500">Volume: {vol.toLocaleString()} kg</div>}
                           </div>
                         </div>
@@ -2061,6 +2364,7 @@
                     })}
                     <button type="button" onClick={addExercise} className="w-full py-2.5 border-2 border-dashed border-slate-200 rounded-2xl text-sm font-bold text-slate-400 active:scale-95 transition-transform">＋ 加動作</button>
                     {totalVolume > 0 && <div className="text-center text-sm font-black text-slate-700 bg-slate-50 py-2 rounded-xl">總 Volume：{totalVolume.toLocaleString()} kg</div>}
+                    {perf.exercises.length > 0 && <RestTimer signal={restSignal} />}
                   </div>
                 )}
                 {(data.category === '跑步') && (
@@ -2099,7 +2403,7 @@
                 return {...n, unit: undefined, sets: n.sets.map(s => ({...s, weightKg: s.weightKg ? (Number(s.weightKg)*0.453592).toFixed(1) : ''}))};
               })
             } : undefined;
-            onSave({...data, id:initData?.id||Date.now().toString(), perf: savePerf, photo: photo||undefined});
+            onSave({...data, id:initData?.id||Date.now().toString(), perf: savePerf, photo: photo||undefined, hasPhoto: photo ? true : ((initData?.hasPhoto && !photoRemoved) ? true : undefined)});
           }} className={`w-full py-4 text-white rounded-2xl font-black shadow-xl transform active:scale-95 transition-all ${isPlanned ? 'bg-slate-500 shadow-slate-200' : 'bg-slate-900 shadow-slate-300'}`}>
               {isPlanned ? '📅 儲存計劃' : '✅ 完成打卡'}
           </button>
@@ -2118,7 +2422,7 @@
           {initData && (
             <div className="flex gap-3">
               <button onClick={()=>setShowCopyModal(true)} className="flex-1 text-blue-500 font-bold text-sm py-2 bg-blue-50 rounded-2xl">📋 複製到其他日期</button>
-              <button onClick={()=>onDelete(initData.id)} className="flex-1 text-red-400 font-bold text-sm py-2 bg-red-50 rounded-2xl">刪除此項目</button>
+              <button onClick={()=>{ if (window.confirm('確定刪除此紀錄？刪除後無法復原。')) onDelete(initData.id); }} className="flex-1 text-red-400 font-bold text-sm py-2 bg-red-50 rounded-2xl">刪除此項目</button>
             </div>
           )}
 
@@ -2276,17 +2580,45 @@
       );
     };
 
-    const Settings = ({ user, handleAuth, setView, onKeyChanged, logs, onForceSync }) => {
+    const Settings = ({ user, handleAuth, setView, onKeyChanged, logs, onForceSync, onImport }) => {
+       const [backupMsg, setBackupMsg] = React.useState('');
+       const exportBackup = async () => {
+         try {
+           const payload = JSON.stringify({ app: 'fittrack', version: 2, exportedAt: new Date().toISOString(), logs: logs || [] });
+           const name = `fittrack-backup-${getLocalTodayString()}.json`;
+           const file = new File([payload], name, { type: 'application/json' });
+           if (navigator.canShare && navigator.canShare({ files: [file] })) {
+             await navigator.share({ files: [file], title: 'FitTrack 備份' });
+           } else {
+             const url = URL.createObjectURL(file);
+             const a = document.createElement('a'); a.href = url; a.download = name;
+             document.body.appendChild(a); a.click(); document.body.removeChild(a);
+             setTimeout(() => URL.revokeObjectURL(url), 1000);
+           }
+           setBackupMsg(`✓ 已匯出 ${logs?.length || 0} 條紀錄`);
+         } catch (e) { if (e?.name !== 'AbortError') setBackupMsg('❌ 匯出失敗：' + (e.message || e)); }
+       };
+       const importBackup = async (file) => {
+         try {
+           const data = JSON.parse(await file.text());
+           const arr = Array.isArray(data) ? data : data.logs;
+           if (!Array.isArray(arr) || !arr.every(l => l && l.id && l.date)) throw new Error('檔案格式不正確');
+           await onImport(arr);
+           setBackupMsg(`✓ 已匯入並合併 ${arr.length} 條紀錄`);
+         } catch (e) { setBackupMsg('❌ 匯入失敗：' + (e.message || e)); }
+       };
        const [geminiKey, setGeminiKey] = React.useState(() => localStorage.getItem(GEMINI_API_KEY_STORAGE) || '');
        const [keySaved, setKeySaved] = React.useState(false);
        const [syncing, setSyncing] = React.useState(false);
-       const [syncDone, setSyncDone] = React.useState(false);
+       const [syncResult, setSyncResult] = React.useState(null); // { ok, msg }
+       const syncDone = !!syncResult?.ok;
+       const photoCount = (logs || []).filter(l => l.photo || l.hasPhoto).length;
        const handleForceSync = async () => {
          setSyncing(true);
-         await onForceSync();
+         setSyncResult(null);
+         const r = await onForceSync();
          setSyncing(false);
-         setSyncDone(true);
-         setTimeout(() => setSyncDone(false), 3000);
+         setSyncResult(r);
        };
        const saveKey = () => {
          localStorage.setItem(GEMINI_API_KEY_STORAGE, geminiKey.trim());
@@ -2327,9 +2659,15 @@
              <button onClick={handleAuth} className="w-full py-3 rounded-2xl font-bold bg-slate-900 text-white shadow-lg active:scale-95 transition-transform">
                 {user ? '登出帳戶' : '使用 Google 登入同步'}
              </button>
+             {syncResult && !syncResult.ok && (
+               <div className="w-full text-[11px] font-bold text-red-600 bg-red-50 border border-red-100 rounded-xl p-3 break-words">{syncResult.msg}
+                 {/permission/i.test(syncResult.msg) && <div className="mt-1 font-medium text-red-500">Firebase 規則未允許此操作：到 Firebase Console → Firestore → Rules，確認 users/{'{uid}'} 及其子集合 photos 都容許本人讀寫。</div>}
+               </div>
+             )}
+             <div className="text-[10px] text-slate-400 font-bold">本機 {logs?.length || 0} 條紀錄 · {photoCount} 張相片</div>
              {user && (
                <button onClick={handleForceSync} disabled={syncing} className={`w-full py-3 rounded-2xl font-bold active:scale-95 transition-all ${syncDone ? 'bg-green-500 text-white' : 'bg-blue-50 text-blue-600 border border-blue-200'}`}>
-                 {syncing ? '同步中...' : syncDone ? `✓ 已同步 ${logs?.length || 0} 條紀錄` : `☁️ 強制同步本地資料至雲端（${logs?.length || 0} 條）`}
+                 {syncing ? '同步中...' : syncDone ? syncResult.msg : `☁️ 強制同步本地資料至雲端（${logs?.length || 0} 條）`}
                </button>
              )}
            </div>
@@ -2353,6 +2691,22 @@
                </button>
              </div>
              {geminiKey && <div className="text-[10px] text-green-600 font-bold">✓ Key 已設定</div>}
+           </div>
+
+           {/* Backup */}
+           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 space-y-3">
+             <div>
+               <h3 className="font-bold text-slate-800 mb-1">💾 備份</h3>
+               <p className="text-xs text-slate-400">匯出所有紀錄（連相片）成檔案，換機或出事時可以還原。匯入會與現有紀錄合併，唔會覆蓋。</p>
+             </div>
+             <div className="flex gap-2">
+               <button onClick={exportBackup} className="flex-1 py-3 rounded-2xl font-bold bg-slate-900 text-white active:scale-95 transition-transform">匯出備份</button>
+               <label className="flex-1 py-3 rounded-2xl font-bold bg-slate-100 text-slate-700 text-center cursor-pointer active:scale-95 transition-transform">
+                 匯入備份
+                 <input type="file" accept="application/json,.json" className="hidden" onChange={e => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ''; }} />
+               </label>
+             </div>
+             {backupMsg && <div className={`text-[11px] font-bold ${backupMsg.startsWith('✓') ? 'text-green-600' : 'text-red-600'}`}>{backupMsg}</div>}
            </div>
 
            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 space-y-4">
@@ -2537,7 +2891,81 @@
       // New AI State in App level (Persistence)
       const [aiAdvice, setAiAdvice] = useState(null);
       const [aiLoading, setAiLoading] = useState(false);
-      const lastSaveRef = useRef(null); // tracks timestamp of last local save
+      const logsRef = useRef(logs);
+      logsRef.current = logs;
+      const userRef = useRef(null);
+      const photoStored = useRef(new Map()); // id -> dataUrl already written to IndexedDB
+
+      // Write logs to local storage: slim logs → localStorage, photos → IndexedDB
+      const persistLocal = async (arr) => {
+        const { slim, photos } = splitPhotos(arr);
+        for (const [id, data] of Object.entries(photos)) {
+          if (photoStored.current.get(id) !== data) { await idb.set(id, data); photoStored.current.set(id, data); }
+        }
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(slim));
+      };
+
+      // Attach photos to logs that only have hasPhoto (from IndexedDB, else cloud)
+      const hydratePhotos = async (arr, uid) => {
+        const found = {};
+        for (const l of arr) {
+          if (!l.hasPhoto || l.photo) continue;
+          let d = await idb.get(l.id);
+          if (!d && uid) {
+            try {
+              const fb = initFirebase();
+              const s = await getDoc(doc(fb.db, 'users', uid, 'photos', l.id));
+              if (s.exists()) { d = s.data().data; await idb.set(l.id, d); }
+            } catch (e) { /* photo not synced yet */ }
+          }
+          if (d) { found[l.id] = d; photoStored.current.set(l.id, d); }
+        }
+        if (Object.keys(found).length) setLogs(cur => cur.map(l => (found[l.id] && !l.photo) ? { ...l, photo: found[l.id] } : l));
+      };
+
+      // Merge with cloud and upload. Returns merged logs. Throws on failure.
+      const pushCloud = async (arr, deleted) => {
+        const u = userRef.current; const fb = initFirebase();
+        if (!u || !fb) throw new Error('未登入');
+        const ref = doc(fb.db, 'users', u.uid);
+        const snap = await getDoc(ref);
+        const cloud = snap.exists() ? snap.data() : {};
+        const allDeleted = { ...(cloud.deleted || {}), ...deleted };
+        const merged = mergeLogs(arr, cloud.logs || [], allDeleted); // local wins ties (keeps photo)
+        const { slim, photos } = splitPhotos(merged);
+        const size = JSON.stringify(slim).length;
+        if (size > 900000) throw new Error(`紀錄資料過大 (${Math.round(size/1024)}KB)，超出雲端 1MB 上限`);
+        await setDoc(ref, { logs: slim, deleted: allDeleted, updatedAt: new Date().toISOString() }, { merge: true });
+        // photos: one small doc each, only if not uploaded yet
+        const synced = new Set(readJson(PHOTO_SYNCED_KEY, []));
+        let photoErr = null;
+        for (const [id, data] of Object.entries(photos)) {
+          const k = id + ':' + data.length;
+          if (synced.has(k)) continue;
+          try { await setDoc(doc(fb.db, 'users', u.uid, 'photos', id), { data }); synced.add(k); }
+          catch (e) { photoErr = e; break; }
+        }
+        localStorage.setItem(PHOTO_SYNCED_KEY, JSON.stringify([...synced]));
+        if (photoErr) throw Object.assign(new Error('相片同步失敗：' + (photoErr.code || photoErr.message)), { photoOnly: true });
+        return merged;
+      };
+
+      const sigOf = (arr) => JSON.stringify(arr.map(l => [l.id, l._u || '']).sort());
+
+      useEffect(() => {
+        // One-time migration: move photos that are still inline in localStorage into IndexedDB
+        (async () => {
+          const raw = readJson(STORAGE_KEY, []);
+          const { slim, photos } = splitPhotos(raw);
+          if (Object.keys(photos).length) {
+            try {
+              for (const [id, d] of Object.entries(photos)) { await idb.set(id, d); photoStored.current.set(id, d); }
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(slim));
+            } catch (e) { console.error('Photo migration failed (data untouched):', e); }
+          }
+          hydratePhotos(raw, null);
+        })();
+      }, []);
 
       useEffect(() => {
         const fb = initFirebase();
@@ -2545,46 +2973,49 @@
             setStatus('本地模式 (Firebase 未配置)');
             return;
         }
-        
+
         getRedirectResult(fb.auth).then(res => {
           if(res) console.log('Redirect Success');
         }).catch(console.error);
 
+        let unsubSnap = null;
         const unsub = onAuthStateChanged(fb.auth, async (u) => {
           setUser(u);
+          userRef.current = u;
+          if (unsubSnap) { unsubSnap(); unsubSnap = null; }
           if (u) {
             setStatus('連線中...');
-            try {
-               const docRef = doc(fb.db, "users", u.uid);
-               onSnapshot(docRef, (docSnap) => {
-                 if (docSnap.exists() && docSnap.data().logs) {
-                    const cloudLogs = docSnap.data().logs;
-                    const cloudTs = docSnap.data().updatedAt || '';
-                    const localTs = lastSaveRef.current || localStorage.getItem(STORAGE_KEY + '_ts') || '';
-                    // Only overwrite local if cloud data is newer (or we haven't saved yet)
-                    if (!localTs || cloudTs >= localTs) {
-                      setLogs(cloudLogs);
-                      localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudLogs));
-                      localStorage.setItem(STORAGE_KEY + '_ts', cloudTs);
-                    } else {
-                      // Local is newer — push local back to Firestore to re-sync
-                      console.warn('Local data is newer than cloud. Re-syncing...');
-                      const localLogs = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
-                      setDoc(docRef, { logs: localLogs, updatedAt: localTs }, { merge: true }).catch(console.error);
-                    }
-                    setStatus('已連線');
-                 } else {
-                    const local = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
-                    setDoc(docRef, { logs: local, updatedAt: new Date().toISOString() });
-                    setStatus('已連線 (初始化)');
-                 }
-               });
-            } catch(e) { console.error(e); setStatus('連線錯誤'); }
+            const docRef = doc(fb.db, "users", u.uid);
+            unsubSnap = onSnapshot(docRef, async (docSnap) => {
+              try {
+                const data = docSnap.exists() ? docSnap.data() : {};
+                const cloudLogs = data.logs || [];
+                const localDeleted = readJson(DELETED_KEY, {});
+                const allDeleted = { ...(data.deleted || {}), ...localDeleted };
+                localStorage.setItem(DELETED_KEY, JSON.stringify(allDeleted));
+                const merged = mergeLogs(logsRef.current, cloudLogs, allDeleted);
+                if (sigOf(merged) !== sigOf(logsRef.current)) {
+                  logsRef.current = merged;
+                  setLogs(merged);
+                  await persistLocal(merged);
+                }
+                // cloud is missing something we have (or has inline photos / no doc yet) → push
+                const cloudSlim = splitPhotos(cloudLogs);
+                if (sigOf(merged) !== sigOf(cloudLogs) || Object.keys(cloudSlim.photos).length || !docSnap.exists()) {
+                  await pushCloud(merged, localDeleted);
+                }
+                setStatus('已連線');
+                hydratePhotos(merged, u.uid);
+              } catch (e) {
+                console.error('Sync error:', e);
+                setStatus(e.photoOnly ? '⚠️ ' + e.message : '⚠️ 同步失敗：' + (e.code || e.message));
+              }
+            }, (e) => { console.error(e); setStatus('連線錯誤：' + (e.code || e.message)); });
           } else {
              setStatus('本地模式');
           }
         });
-        return () => unsub();
+        return () => { unsub(); unsubSnap && unsubSnap(); };
       }, []);
 
       // AI Logic Function
@@ -2681,7 +3112,7 @@
               adviceText = await geminiGenerate(prompt, key);
             } catch (e) {
               console.error("Gemini failed:", e);
-              setAiAdvice(`❌ AI 錯誤: ${e.message || e}`);
+              setAiAdvice(friendlyGeminiError(e));
               return;
             }
             
@@ -2710,20 +3141,45 @@
 
       const updateLogs = async (newLogs) => {
         const ts = new Date().toISOString();
-        lastSaveRef.current = ts;
-        setLogs(newLogs);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(newLogs));
-        localStorage.setItem(STORAGE_KEY + '_ts', ts);
-        if (user) {
-          const fb = initFirebase();
-          if(fb) {
-            try {
-              await setDoc(doc(fb.db, "users", user.uid), { logs: newLogs, updatedAt: ts }, { merge: true });
-            } catch(e) {
-              console.error('Firestore write failed:', e);
-              setStatus('⚠️ 同步失敗，已儲存本地（請檢查網絡）');
-            }
+        const old = logsRef.current;
+        // stamp changed/new logs so the newest edit wins when merging devices
+        const oldMap = new Map(old.map(l => [l.id, l]));
+        const stamped = newLogs.map(l => {
+          const o = oldMap.get(l.id);
+          return (!o || JSON.stringify(o) !== JSON.stringify(l)) ? { ...l, _u: ts } : l;
+        });
+        // deletions become tombstones so other devices don't resurrect them
+        const deleted = readJson(DELETED_KEY, {});
+        const keep = new Set(newLogs.map(l => l.id));
+        old.forEach(l => { if (!keep.has(l.id)) { deleted[l.id] = ts; idb.del(l.id); photoStored.current.delete(l.id); } });
+        localStorage.setItem(DELETED_KEY, JSON.stringify(deleted));
+
+        logsRef.current = stamped;
+        setLogs(stamped);
+        try { await persistLocal(stamped); }
+        catch (e) { console.error('Local save failed:', e); setStatus('⚠️ 本機儲存失敗：' + (e.name || e.message)); }
+        if (userRef.current) {
+          try { await pushCloud(stamped, deleted); setStatus('已連線'); }
+          catch (e) {
+            console.error('Cloud sync failed:', e);
+            setStatus(e.photoOnly ? '⚠️ ' + e.message : '⚠️ 同步失敗（已存本機）：' + (e.code || e.message));
           }
+        }
+      };
+
+      // Manual full sync from Settings. Returns { ok, msg } for display.
+      const forceSync = async () => {
+        if (!userRef.current) return { ok: false, msg: '未登入 Google' };
+        try {
+          const merged = await pushCloud(logsRef.current, readJson(DELETED_KEY, {}));
+          logsRef.current = mergeLogs(logsRef.current, merged, readJson(DELETED_KEY, {}));
+          setLogs(logsRef.current);
+          await persistLocal(logsRef.current);
+          setStatus('已連線');
+          return { ok: true, msg: `✓ 已同步 ${merged.length} 條紀錄` };
+        } catch (e) {
+          console.error(e);
+          return { ok: false, msg: '❌ ' + (e.code ? e.code + '：' : '') + (e.message || e) };
         }
       };
 
@@ -2798,7 +3254,7 @@
             setFriendsKey(k => k + 1);
           }
           setView(v);
-        }} user={user} status={status} onAuth={handleAuth}>
+        }} user={user} status={status} onAuth={handleAuth} onAdd={() => { setEditLog(null); setCalendarDate(null); setView('add'); }}>
           {view === 'dashboard' && (
              <Dashboard
                 logs={logs}
@@ -2812,17 +3268,22 @@
              />
           )}
           {view === 'trends' && <Trends logs={logs} />}
-          {view === 'calendar' && <Calendar logs={logs} onEdit={(l)=>{setEditLog(l); setCalendarDate(null); setView('add');}} onAddForDate={(date)=>{setEditLog(null); setCalendarDate(date); setView('add');}} />}
+          {view === 'calendar' && <Calendar logs={logs} onEdit={(l)=>{setEditLog(l); setCalendarDate(null); setView('add');}} onAddForDate={(date)=>{setEditLog(null); setCalendarDate(date); setView('add');}} onWeekPlan={()=>setView('weekplanner')} />}
           {view === 'friends' && <FriendsView key={friendsKey} logs={logs} />}
           {view === 'add' && <Form onSave={handleSave} onCancel={()=>{setEditLog(null); setCalendarDate(null); setView('dashboard');}} onDelete={handleDelete} onCopy={handleCopy} initData={editLog} logs={logs} defaultDate={calendarDate} />}
           {view === 'weekplanner' && <WeekPlanner onBatchSave={handleBatchSave} onCancel={()=>setView('dashboard')} />}
-          {view === 'settings' && <Settings user={user} handleAuth={handleAuth} setView={setView} onKeyChanged={() => { setAiAdvice(null); setAiLoading(false); }} logs={logs} onForceSync={() => updateLogs(logs)} />}
+          {view === 'settings' && <Settings user={user} handleAuth={handleAuth} setView={setView} onKeyChanged={() => { setAiAdvice(null); setAiLoading(false); }} logs={logs} onForceSync={forceSync} onImport={(arr) => updateLogs(mergeLogs(logsRef.current, arr, readJson(DELETED_KEY, {})))} />}
         </Layout>
       );
     };
 
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<App />);
+
+    // Offline support (network-first; see sw.js)
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('SW register failed', e));
+    }
 
     // iOS Safari / PWA viewport fix
     // When the keyboard opens, iOS shifts visualViewport.offsetTop upward.
