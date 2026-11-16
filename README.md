@@ -1,20 +1,9 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# FitTrack 運動日常
 
-# Run and deploy your AI Studio app
+自用嘅健身紀錄 app（PWA）。
 
-This contains everything you need to run your app locally.
-
-View your app in AI Studio: https://ai.studio/apps/7f3effa6-df3c-4888-8a82-3a0e1d564a69
-
-## Run Locally
-
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+- **主程式**：成個 app 喺 `index.html` 一個檔案。`sw.js` 負責離線，`manifest.json` + `icon-*.png` 係安裝到主畫面用。
+- **後端**：Firebase Auth + Firestore（project `fittracker-chunlam252`）。紀錄、體重、課表喺 `users/{uid}`，相片喺 `users/{uid}/photos`。
+- **AI 教練**：用自己嘅 Gemini API Key，喺 app 嘅「設定」入面貼上，只存喺手機本機。**唔好將 key 寫入 code 或者放上 repo。**
+- **本機預覽**：行「啟動本地預覽.command」，開 `localhost:8080`。
+- `.tsx`、`components/`、`services/`、`package.json`、`vite.config.ts` 係 Google AI Studio 留低嘅，唔係主程式。

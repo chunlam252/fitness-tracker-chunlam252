@@ -18,7 +18,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#ffffff">
   <link rel="manifest" href="/manifest.json">
-  <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2964/2964514.png">
+  <link rel="apple-touch-icon" href="/icon-192.png">
 
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -89,10 +89,50 @@
     .prose td { padding: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.1); vertical-align: top; color: rgba(255,255,255,0.8); word-wrap: break-word; }
     .prose tr:last-child td { border-bottom: none; }
     
+    /* ── Dark mode (設定 → 外觀). Overrides the neutral colours only. ── */
+    html.dark body { background-color: #0b1220; color-scheme: dark; }
+    html.dark .bg-white { background-color: #172033 !important; }
+    html.dark .bg-slate-50 { background-color: #0b1220 !important; }
+    html.dark .bg-slate-100 { background-color: #1f2a40 !important; }
+    html.dark .bg-slate-200 { background-color: #2b3852 !important; }
+    html.dark .bg-slate-300 { background-color: #3b4a68 !important; }
+    html.dark .bg-slate-900, html.dark .bg-slate-800 { background-color: #263352 !important; }
+    html.dark .text-slate-900, html.dark .text-slate-800 { color: #f1f5f9 !important; }
+    html.dark .text-slate-700, html.dark .text-slate-600 { color: #cbd5e1 !important; }
+    html.dark .text-slate-500 { color: #a3b1c6 !important; }
+    html.dark .text-slate-400 { color: #8494ab !important; }
+    html.dark .text-slate-300 { color: #5b6b85 !important; }
+    html.dark .border-slate-50, html.dark .border-slate-100, html.dark .border-slate-200 { border-color: #263352 !important; }
+    html.dark .border-slate-300 { border-color: #3b4a68 !important; }
+    html.dark .divide-slate-50 > * { border-color: #263352 !important; }
+    html.dark .ring-slate-50, html.dark .ring-slate-200 { --tw-ring-color: #263352 !important; }
+    html.dark .shadow-sm, html.dark .shadow-lg, html.dark .shadow-inner { box-shadow: none !important; }
+    html.dark .shadow-blue-200 { --tw-shadow-color: transparent !important; }
+    html.dark .bg-blue-50 { background-color: #17305c !important; }
+    html.dark .bg-amber-50 { background-color: #3d2e0f !important; }
+    html.dark .bg-red-50 { background-color: #401a1f !important; }
+    html.dark .bg-green-50, html.dark .bg-emerald-50 { background-color: #12352a !important; }
+    html.dark .bg-orange-100 { background-color: #45280f !important; }
+    html.dark .text-amber-700 { color: #fcd34d !important; }
+    html.dark .text-orange-700 { color: #fdba74 !important; }
+    html.dark input, html.dark textarea, html.dark select { color: #f1f5f9; }
+    html.dark input::placeholder, html.dark textarea::placeholder { color: #5b6b85; }
+
     /* Headings in Markdown */
     .prose h1, .prose h2, .prose h3 { font-weight: 800; margin-top: 1rem; margin-bottom: 0.5rem; color: #fff; }
   </style>
   
+  <script>
+    // Apply the saved theme before first paint (see 設定 → 外觀)
+    (function () {
+      try {
+        var t = localStorage.getItem('fittrack_theme') || 'light';
+        var dark = t === 'dark' || (t === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.classList.toggle('dark', dark);
+      } catch (e) {}
+    })();
+  </script>
+
   <!-- Babel -->
   <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
   
@@ -105,12 +145,10 @@
     "firebase/app": "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js",
     "firebase/auth": "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js",
     "firebase/firestore": "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js",
-    "marked": "https://esm.sh/marked@12.0.0",
-    "react/": "https://esm.sh/react@^19.2.4/"
+    "marked": "https://esm.sh/marked@12.0.0"
   }
 }
 </script>
-<link rel="stylesheet" href="/index.css">
 </head>
 <body>
   <div id="root"></div>
@@ -236,10 +274,9 @@
     };
 
     const isFutureDate = (dateStr) => {
-      const today = new Date();
-      today.setHours(0,0,0,0);
-      const target = new Date(dateStr);
-      return target > today; 
+      // Compare as local YYYY-MM-DD strings (new Date('YYYY-MM-DD') is UTC and
+      // made "today" look like the future in Asian time zones)
+      return String(dateStr) > getLocalTodayString();
     };
 
     const calculateDuration = (start, end) => {
@@ -307,11 +344,63 @@
         // never lose the photo flag/data when one side is slim
         map.set(l.id, { ...keep, ...(keep.photo || keep.hasPhoto ? {} : (cur.hasPhoto || l.hasPhoto ? { hasPhoto: true } : {})) });
       });
-      deleted && Object.keys(deleted).forEach(id => map.delete(id));
+      deleted && Object.keys(deleted).forEach(id => {
+        const l = map.get(id);
+        if (l && (typeof deleted[id] !== 'string' || (l._u || '') <= deleted[id])) map.delete(id);
+      });
       return [...map.values()].sort((x, y) => (x.date < y.date ? 1 : x.date > y.date ? -1 : 0));
     };
 
     // --- AI COMPONENT (Collapsible & Alien Icon) ---
+    // ── v3 helpers ───────────────────────────────────────────────────────
+    const BODY_KEY = 'fittrack_body';         // [{ id: date, date, kg, fat, _u, del }]
+    const ROUTINES_KEY = 'fittrack_routines'; // [{ id, name, exercises: [{ name, muscleGroup, sets }], _u, del }]
+    const EX_UNITS_KEY = 'fittrack_ex_units'; // { exerciseName: 'kg' | 'lb' }
+    const THEME_KEY = 'fittrack_theme';       // 'light' | 'dark' | 'auto'
+    const TOMBSTONE_DAYS = 180;
+    const applyTheme = (t) => {
+      const dark = t === 'dark' || (t === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      document.documentElement.classList.toggle('dark', dark);
+    };
+    // Merge two lists by id, newest `_u` wins (deleted items stay as { del: true })
+    const mergeById = (a, b) => {
+      const m = new Map();
+      [...(a || []), ...(b || [])].forEach(x => { if (!x || !x.id) return; const c = m.get(x.id); if (!c || (x._u || '') > (c._u || '')) m.set(x.id, x); });
+      return [...m.values()].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
+    };
+    const sigById = (arr) => JSON.stringify((arr || []).map(x => [x.id, x._u || '']).sort());
+    const isDoneLog = (l) => l.status === 'completed' || !l.status;
+    const dsToDate = (ds) => new Date(String(ds).replace(/-/g, '/'));
+    const dsLocal = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const weekStartDs = (d) => { const x = new Date(d); x.setHours(0,0,0,0); x.setDate(x.getDate() - x.getDay()); return dsLocal(x); };
+    // Estimated one-rep max (Epley, capped at 12 reps where the formula stops being meaningful)
+    const e1rm = (kg, reps) => { kg = Number(kg) || 0; reps = Number(reps) || 0; if (!kg || !reps) return 0; return reps === 1 ? kg : kg * (1 + Math.min(reps, 12) / 30); };
+    const logSets = (l) => (l.perf?.exercises || []).filter(e => e.name).map(e => ({
+      name: e.name,
+      sets: (Array.isArray(e.sets) ? e.sets : [{ weightKg: e.weightKg, reps: e.reps }]).filter(s => s && (s.reps || s.weightKg)),
+    })).filter(e => e.sets.length);
+    const logVolume = (l) => logSets(l).reduce((a, e) => a + e.sets.reduce((b, s) => b + (Number(s.weightKg) || 0) * (Number(s.reps) || 0), 0), 0);
+    // "Bench Press 60kg×8, 60kg×8" — for the AI coach
+    const gymSummary = (l) => logSets(l).map(e => `${e.name} ${e.sets.map(s => `${s.weightKg ? s.weightKg + 'kg' : 'BW'}×${s.reps || '?'}`).join(', ')}`).join('; ');
+    const weekStats = (logs, weeksAgo) => {
+      const start = new Date(); start.setHours(0,0,0,0); start.setDate(start.getDate() - start.getDay() - 7 * weeksAgo);
+      const end = new Date(start); end.setDate(end.getDate() + 7);
+      const a = dsLocal(start), b = dsLocal(end);
+      const done = (logs || []).filter(l => isDoneLog(l) && l.date >= a && l.date < b);
+      const before = {}; // best weight per exercise before this week
+      (logs || []).filter(l => isDoneLog(l) && l.date < a).forEach(l => logSets(l).forEach(e => e.sets.forEach(s => { const k = Number(s.weightKg) || 0; if (k > (before[e.name] || 0)) before[e.name] = k; })));
+      const prs = new Set();
+      done.forEach(l => logSets(l).forEach(e => e.sets.forEach(s => { const k = Number(s.weightKg) || 0; if (before[e.name] > 0 && k > before[e.name] + 0.05) prs.add(e.name); })));
+      return { count: done.length, mins: done.reduce((x, l) => x + (l.durationMinutes || 0), 0), volume: Math.round(done.reduce((x, l) => x + logVolume(l), 0)), prs: [...prs], days: new Set(done.map(l => l.date)).size };
+    };
+    const shareOrDownload = async (file, title) => {
+      if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title }); return; }
+      const url = URL.createObjectURL(file);
+      const a = document.createElement('a'); a.href = url; a.download = file.name;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    };
+
     const SmartCoach = ({ advice, loading, onRefresh, logs }) => {
       const [expanded, setExpanded] = useState(false);
       const [chatInput, setChatInput] = useState('');
@@ -332,7 +421,7 @@
                 .filter(l => (l.status === 'completed' || !l.status) && l.date <= todayStr) 
                 .sort((a,b) => new Date(b.date) - new Date(a.date))
                 .slice(0, 14)
-                .map(l => `- ${l.date} [${l.category}]: ${l.subcategory} (${l.durationMinutes}min)`);
+                .map(l => `- ${l.date} [${l.category}]: ${l.subcategory} (${l.durationMinutes}min)` + (gymSummary(l) ? `\n  - Sets: ${gymSummary(l)}` : ''));
                 
               const futurePlans = (logs || [])
                 .filter(l => l.status === 'planned' && l.date > todayStr)
@@ -352,7 +441,8 @@
                 
                 User Question: "${userMsg}"
                 
-                Task: Answer the user's question based on their exercise history and plans. 
+                Task: Answer the user's question based on their exercise history and plans.
+                For Gym sessions the "Sets" line lists each exercise as weight×reps; use it for concrete load/rep advice.
                 Respond in Traditional Chinese (HK style). Be concise, encouraging, and professional.
               `;
               
@@ -672,6 +762,15 @@
         return s;
       })();
 
+      // Weeks in a row that hit the weekly goal (rest days no longer break it)
+      const weekStreak = (() => {
+        const cnt = {};
+        completedLogs.forEach(l => { const k = weekStartDs(dsToDate(l.date)); cnt[k] = (cnt[k] || 0) + 1; });
+        const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() - d.getDay());
+        let s = (cnt[dsLocal(d)] || 0) >= goal ? 1 : 0;
+        for (let i = 0; i < 520; i++) { d.setDate(d.getDate() - 7); if ((cnt[dsLocal(d)] || 0) >= goal) s++; else break; }
+        return s;
+      })();
       // Rest analysis
       const restAlert = (() => {
         const dsOf = (daysAgo) => { const d = new Date(); d.setDate(d.getDate()-daysAgo); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
@@ -753,7 +852,7 @@
             <div className="flex items-center justify-between mb-4">
               <div className="text-base font-bold text-slate-900">本週</div>
               <button onClick={cycleGoal} className="text-sm font-medium text-slate-500 active:opacity-60">
-                <span className={`font-bold ${thisWeekCount >= goal ? 'text-green-600' : 'text-slate-900'}`}>{thisWeekCount}</span> / {goal} 次{thisWeekCount >= goal ? ' 🎉' : ''}{streak > 1 ? ` · 🔥 連續 ${streak} 日` : ''} <span className="text-slate-300">✎</span>
+                <span className={`font-bold ${thisWeekCount >= goal ? 'text-green-600' : 'text-slate-900'}`}>{thisWeekCount}</span> / {goal} 次{thisWeekCount >= goal ? ' 🎉' : ''}{weekStreak > 1 ? ` · 🔥 連續 ${weekStreak} 週達標` : ''} <span className="text-slate-300">✎</span>
               </button>
             </div>
             <div className="grid grid-cols-7 gap-1">
@@ -846,7 +945,101 @@
       )
     };
 
-    const Trends = ({ logs }) => {
+    const Delta = ({ now, prev, unit }) => {
+      const d = Math.round((now - prev) * 10) / 10;
+      if (!prev && !now) return <span className="text-slate-300">—</span>;
+      return <span className={d > 0 ? 'text-green-600' : d < 0 ? 'text-red-500' : 'text-slate-400'}>{d > 0 ? '▲' : d < 0 ? '▼' : '＝'} {Math.abs(d).toLocaleString()}{unit || ''}</span>;
+    };
+
+    const WeekSummary = ({ logs }) => {
+      const cur = weekStats(logs, 0), prev = weekStats(logs, 1);
+      const rows = [
+        { label: '次數', now: cur.count, prev: prev.count, unit: '' },
+        { label: '時數', now: Math.round(cur.mins / 6) / 10, prev: Math.round(prev.mins / 6) / 10, unit: 'h' },
+        { label: 'Gym 訓練量', now: cur.volume, prev: prev.volume, unit: 'kg' },
+      ];
+      return (
+        <div className="bg-white rounded-2xl border border-slate-100 p-4">
+          <div className="flex justify-between items-baseline mb-3">
+            <h3 className="text-base font-bold text-slate-900">本週總結</h3>
+            <span className="text-xs text-slate-400">對比上週</span>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {rows.map(r => (
+              <div key={r.label} className="bg-slate-50 rounded-xl p-3">
+                <div className="text-xs text-slate-400">{r.label}</div>
+                <div className="text-lg font-bold text-slate-900 tabular leading-tight mt-0.5">{r.now.toLocaleString()}<span className="text-xs font-medium text-slate-400">{r.unit}</span></div>
+                <div className="text-xs font-medium mt-0.5 tabular"><Delta now={r.now} prev={r.prev} unit={r.unit} /></div>
+              </div>
+            ))}
+          </div>
+          {cur.prs.length > 0 && <div className="mt-3 bg-amber-50 text-amber-700 rounded-xl p-2.5 text-sm font-medium">🏆 本週新 PR：{cur.prs.map(n => n.replace(/\s*\([^)]*\)/g, '')).join('、')}</div>}
+        </div>
+      );
+    };
+
+    const BodyCard = ({ body, onChange }) => {
+      const today = getLocalTodayString();
+      const list = (body || []).filter(b => !b.del && Number(b.kg) > 0).sort((a, b) => (a.date < b.date ? -1 : 1));
+      const latest = list[list.length - 1];
+      const [kg, setKg] = useState('');
+      const [fat, setFat] = useState('');
+      const [date, setDate] = useState(today);
+      const [showAll, setShowAll] = useState(false);
+      const save = () => {
+        const v = Number(kg); if (!(v > 20 && v < 400) || !date || date > today) return;
+        const f = Number(fat);
+        const entry = { id: date, date, kg: Math.round(v * 10) / 10, ...(f > 0 && f < 80 ? { fat: Math.round(f * 10) / 10 } : {}) };
+        onChange([...(body || []).filter(b => b.id !== date), entry]);
+        setKg(''); setFat('');
+      };
+      const remove = (id) => { if (window.confirm('刪除呢個體重紀錄？')) onChange((body || []).map(b => b.id === id ? { id: b.id, date: b.date, del: true } : b)); };
+      // 30-day comparison: closest entry at least 28 days before the latest one
+      const ref = latest ? [...list].reverse().find(b => (dsToDate(latest.date) - dsToDate(b.date)) / 864e5 >= 28) : null;
+      const pts = list.slice(-30);
+      const W = 300, H = 70, min = Math.min(...pts.map(p => p.kg)), max = Math.max(...pts.map(p => p.kg)), span = (max - min) || 1;
+      const xy = (p, i) => [pts.length > 1 ? (i / (pts.length - 1)) * (W - 8) + 4 : W / 2, H - 6 - ((p.kg - min) / span) * (H - 12)];
+      return (
+        <div className="bg-white rounded-2xl border border-slate-100 p-4">
+          <div className="flex justify-between items-baseline mb-2">
+            <h3 className="text-base font-bold text-slate-900">體重</h3>
+            {latest && <span className="text-xs text-slate-400">{latest.date.replace(/-/g, '/')}</span>}
+          </div>
+          {latest ? (
+            <div className="flex items-end gap-3 mb-2">
+              <div className="text-3xl font-bold text-slate-900 tabular leading-none">{latest.kg}<span className="text-sm font-medium text-slate-400"> kg</span></div>
+              {latest.fat > 0 && <div className="text-sm text-slate-500 tabular">體脂 {latest.fat}%</div>}
+              {ref && <div className="text-xs font-medium tabular ml-auto text-slate-500">{Math.round((dsToDate(latest.date) - dsToDate(ref.date)) / 864e5)} 日：{latest.kg - ref.kg > 0 ? '+' : ''}{Math.round((latest.kg - ref.kg) * 10) / 10} kg</div>}
+            </div>
+          ) : <div className="text-sm text-slate-400 mb-2">未有紀錄。輸入今日體重開始追蹤。</div>}
+          {pts.length > 1 && (
+            <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-16 mb-2" preserveAspectRatio="none" role="img" aria-label="體重趨勢">
+              <polyline fill="none" stroke="#2563eb" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" points={pts.map((p, i) => xy(p, i).join(',')).join(' ')} />
+            </svg>
+          )}
+          <div className="flex gap-2">
+            <input type="date" value={date} max={today} onChange={e => setDate(e.target.value)} aria-label="日期" className="w-32 h-11 px-2 rounded-xl bg-slate-50 border border-slate-100 text-sm outline-none" />
+            <input type="number" inputMode="decimal" value={kg} onChange={e => setKg(e.target.value)} placeholder="kg" aria-label="體重 kg" className="flex-1 min-w-0 h-11 rounded-xl bg-slate-50 border border-slate-100 text-center text-base font-semibold outline-none" />
+            <input type="number" inputMode="decimal" value={fat} onChange={e => setFat(e.target.value)} placeholder="體脂%" aria-label="體脂百分比（可留空）" className="w-16 h-11 rounded-xl bg-slate-50 border border-slate-100 text-center text-sm outline-none" />
+            <button onClick={save} disabled={!(Number(kg) > 20 && Number(kg) < 400)} className="h-11 px-4 rounded-xl bg-blue-600 text-white text-sm font-bold disabled:opacity-40">記錄</button>
+          </div>
+          {list.length > 0 && (
+            <div className="mt-3">
+              <button onClick={() => setShowAll(v => !v)} className="text-xs font-medium text-slate-400">{showAll ? '收起紀錄' : `睇全部紀錄（${list.length}）`}</button>
+              {showAll && [...list].reverse().map(b => (
+                <div key={b.id} className="flex items-center justify-between py-2 border-b border-slate-100 text-sm">
+                  <span className="text-slate-500 tabular">{b.date.replace(/-/g, '/')}</span>
+                  <span className="font-semibold text-slate-800 tabular">{b.kg} kg{b.fat > 0 ? ` · ${b.fat}%` : ''}</span>
+                  <button onClick={() => remove(b.id)} aria-label="刪除" className="w-8 h-8 text-slate-300">✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const Trends = ({ logs, body, onBody }) => {
       // Logic: ONLY COMPLETED logs
       const completed = logs.filter(l => l.status === 'completed' || !l.status);
       const [trendsTab, setTrendsTab] = useState('overview'); // 'overview' | 'friends'
@@ -1294,6 +1487,9 @@
           )}
 
           {trendsTab === 'friends' ? <FriendsView logs={logs} /> : (<>
+
+          {!selectedCategory && <WeekSummary logs={logs} />}
+          {!selectedCategory && onBody && <BodyCard body={body} onChange={onBody} />}
 
           <div className="flex bg-slate-50 p-1 rounded-2xl">
              <FilterBtn val="month" label="月份" />
@@ -2041,7 +2237,7 @@
     const exSets = (ex) => Array.isArray(ex.sets) ? ex.sets : Array.from({ length: Number(ex.sets) || 1 }, () => ({ weightKg: ex.weightKg || '', reps: ex.reps || '' }));
     const pad2 = (n) => String(n).padStart(2, '0');
 
-    const WorkoutSession = ({ logs, onFinish, onDiscard, onMinimize }) => {
+    const WorkoutSession = ({ logs, onFinish, onDiscard, onMinimize, routines, onSaveRoutine, onDeleteRoutine }) => {
       const [w, setW] = useState(() => readJson(ACTIVE_WORKOUT_KEY, null) || { startedAt: Date.now(), exercises: [] });
       useEffect(() => { try { localStorage.setItem(ACTIVE_WORKOUT_KEY, JSON.stringify(w)); } catch {} }, [w]);
 
@@ -2058,6 +2254,21 @@
       const [notes, setNotes] = useState('');
       const [durMin, setDurMin] = useState('');
 
+      const [effort, setEffort] = useState(5);
+      const [performance, setPerformance] = useState(7);
+      const [routineName, setRoutineName] = useState('');
+      const [routineSaved, setRoutineSaved] = useState(false);
+      const exUnits = React.useMemo(() => readJson(EX_UNITS_KEY, {}), []);
+      const unitFor = (name) => exUnits[name] === 'lb' ? 'lb' : 'kg';
+      const rememberUnit = (name, unit) => { exUnits[name] = unit; try { localStorage.setItem(EX_UNITS_KEY, JSON.stringify(exUnits)); } catch {} };
+      // Keep the screen on while training (released automatically when leaving)
+      useEffect(() => {
+        let lock = null, off = false;
+        const req = async () => { try { if ('wakeLock' in navigator && document.visibilityState === 'visible') { lock = await navigator.wakeLock.request('screen'); if (off) lock.release(); } } catch {} };
+        const onVis = () => { if (document.visibilityState === 'visible') req(); };
+        req(); document.addEventListener('visibilitychange', onVis);
+        return () => { off = true; document.removeEventListener('visibilitychange', onVis); try { lock && lock.release(); } catch {} };
+      }, []);
       // Per-exercise history: last session's sets and all-time best weight (kg)
       const { history, lastGym } = React.useMemo(() => {
         const h = {}; let lg = null;
@@ -2070,9 +2281,9 @@
               const sets = exSets(ex).filter(s => s.reps || s.weightKg);
               if (!sets.length) return;
               any = true;
-              const e = h[ex.name] = h[ex.name] || { pr: 0 };
+              const e = h[ex.name] = h[ex.name] || { pr: 0, rm: 0 };
               e.last = { date: l.date, sets };
-              sets.forEach(s => { const k = Number(s.weightKg) || 0; if (k > e.pr) e.pr = k; });
+              sets.forEach(s => { const k = Number(s.weightKg) || 0; if (k > e.pr) e.pr = k; const r = e1rm(k, s.reps); if (r > e.rm) e.rm = r; });
             });
             if (any) lg = l;
           });
@@ -2096,11 +2307,29 @@
       const blankSets = (n) => Array.from({ length: n }, () => ({ weightKg: '', reps: '', done: false }));
       const addExercise = (name, group) => {
         const n = history[name]?.last?.sets.length || 3;
-        setW(p => ({ ...p, exercises: [...p.exercises, { name, muscleGroup: group || findMuscleGroup(name) || '', unit: 'kg', sets: blankSets(n) }] }));
+        setW(p => ({ ...p, exercises: [...p.exercises, { name, muscleGroup: group || findMuscleGroup(name) || '', unit: unitFor(name), sets: blankSets(n) }] }));
+      };
+      const moveExercise = (i, dir) => setW(p => {
+        const j = i + dir; if (j < 0 || j >= p.exercises.length) return p;
+        const ex = [...p.exercises]; [ex[i], ex[j]] = [ex[j], ex[i]]; return { ...p, exercises: ex };
+      });
+      const toggleUnit = (i) => { const next = w.exercises[i].unit === 'lb' ? 'kg' : 'lb'; rememberUnit(w.exercises[i].name, next); setEx(i, x => ({ ...x, unit: next })); };
+      const startRoutine = (r) => setW(p => ({ ...p, exercises: (r.exercises || []).filter(e => e.name).map(e => ({ name: e.name, muscleGroup: e.muscleGroup || findMuscleGroup(e.name) || '', unit: unitFor(e.name), sets: blankSets(Math.max(1, Number(e.sets) || 3)) })) }));
+      const saveRoutine = () => {
+        const name = routineName.trim(); if (!name || !w.exercises.length) return;
+        onSaveRoutine({ id: 'r' + Date.now().toString(36), name, exercises: w.exercises.filter(e => e.name).map(e => ({ name: e.name, muscleGroup: e.muscleGroup || '', sets: e.sets.length })) });
+        setRoutineSaved(true);
+      };
+      // Double progression: once every set last time reached 12 reps, suggest more weight
+      const suggestion = (name) => {
+        const last = history[name]?.last?.sets; if (!last || !last.length) return null;
+        const kgs = last.map(s => Number(s.weightKg) || 0);
+        if (kgs[0] > 0 && kgs.every(k => k === kgs[0]) && last.every(s => Number(s.reps) >= 12)) return '上次每組都做到 12 下以上，今次可以試加重';
+        return null;
       };
       const copyLast = () => {
         if (!lastGym) return;
-        const ex = lastGym.perf.exercises.filter(e => e.name).map(e => ({ name: e.name, muscleGroup: e.muscleGroup || findMuscleGroup(e.name) || '', unit: 'kg', sets: blankSets(exSets(e).length) }));
+        const ex = lastGym.perf.exercises.filter(e => e.name).map(e => ({ name: e.name, muscleGroup: e.muscleGroup || findMuscleGroup(e.name) || '', unit: unitFor(e.name), sets: blankSets(exSets(e).length) }));
         setW(p => ({ ...p, exercises: ex }));
       };
       const updateSet = (i, k, field, val) => setEx(i, e => ({ ...e, sets: e.sets.map((s, idx) => idx === k ? { ...s, [field]: val } : s) }));
@@ -2122,7 +2351,11 @@
       const doneSets = w.exercises.reduce((a, e) => a + e.sets.filter(s => s.done).length, 0);
       const totalSets = w.exercises.reduce((a, e) => a + e.sets.length, 0);
       const volume = Math.round(w.exercises.reduce((a, e) => a + e.sets.filter(s => s.done).reduce((b, s) => b + kgOf(e, s) * (Number(s.reps) || 0), 0), 0));
-      const newPRs = w.exercises.filter(e => { const pr = history[e.name]?.pr || 0; return pr > 0 && Math.max(0, ...e.sets.filter(s => s.done).map(s => kgOf(e, s))) > pr + 0.05; }).map(e => e.name);
+      const newPRs = w.exercises.filter(e => {
+        const h = history[e.name]; if (!h || !(h.pr > 0)) return false;
+        const done = e.sets.filter(s => s.done);
+        return Math.max(0, ...done.map(s => kgOf(e, s))) > h.pr + 0.05 || Math.max(0, ...done.map(s => e1rm(kgOf(e, s), s.reps))) > (h.rm || 0) + 0.25;
+      }).map(e => e.name);
 
       const openFinish = () => { setDurMin(String(Math.max(1, Math.round(elapsed / 60)))); setShowFinish(true); };
       const save = () => {
@@ -2141,7 +2374,7 @@
           id: Date.now().toString(), category: 'Gym', subcategory: '重量訓練',
           date: `${start.getFullYear()}-${pad2(start.getMonth() + 1)}-${pad2(start.getDate())}`,
           startTime: hm(start), endTime: hm(end), durationMinutes: mins,
-          status: 'completed', effort: 5, performance: 7, mood, friends: [], notes, improvement: '',
+          status: 'completed', effort: Number(effort) || 5, performance: Number(performance) || 7, mood, friends: [], notes, improvement: '',
           perf: { exercises, distanceKm: '', timeMin: '', heartRate: '', distanceM: '', laps: '' },
         });
       };
@@ -2176,8 +2409,19 @@
               </button>
             )}
 
+            {w.exercises.length === 0 && (routines || []).filter(r => !r.del).map(r => (
+              <div key={r.id} className="flex items-stretch gap-2">
+                <button onClick={() => startRoutine(r)} className="flex-1 min-w-0 p-4 rounded-2xl bg-white border border-slate-200 text-left active:bg-slate-50">
+                  <div className="text-base font-bold text-slate-800 truncate">📋 {r.name}</div>
+                  <div className="text-sm text-slate-400 mt-1 truncate">{(r.exercises || []).map(e => e.name.replace(/\s*\([^)]*\)/g, '')).join('、')}</div>
+                </button>
+                <button onClick={() => { if (window.confirm(`刪除課表「${r.name}」？`)) onDeleteRoutine(r.id); }} aria-label="刪除課表" className="w-11 rounded-2xl bg-white border border-slate-200 text-slate-300 text-lg">✕</button>
+              </div>
+            ))}
+
             {w.exercises.map((e, i) => {
               const hist = history[e.name];
+              const tip = suggestion(e.name);
               const allDone = e.sets.length > 0 && e.sets.every(s => s.done);
               return (
                 <div key={i} className={`bg-white rounded-2xl border ${allDone ? 'border-green-200' : 'border-slate-200'} overflow-hidden`}>
@@ -2189,9 +2433,14 @@
                         <div className="text-xs text-slate-400 truncate">
                           {hist?.last ? `上次 ${hist.last.sets.map(s => `${s.weightKg ? toUnit(Number(s.weightKg), e.unit) : '—'}×${s.reps || '—'}`).slice(0, 4).join('  ')}` : '第一次做 · 點擊看示範'}
                         </div>
+                        {(tip || hist?.rm > 0) && <div className="text-xs text-blue-600 truncate">{tip ? `💡 ${tip}` : `估算 1RM ${toUnit(hist.rm, e.unit)} ${e.unit}`}</div>}
                       </div>
                     </button>
-                    <button onClick={() => setEx(i, x => ({ ...x, unit: x.unit === 'lb' ? 'kg' : 'lb' }))} className={`h-9 px-3 rounded-lg text-xs font-bold ${e.unit === 'lb' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-600'}`}>{e.unit === 'lb' ? 'LB' : 'KG'}</button>
+                    <div className="flex flex-col shrink-0">
+                      <button onClick={() => moveExercise(i, -1)} disabled={i === 0} aria-label="上移" className="w-8 h-5 text-xs leading-none text-slate-400 disabled:opacity-20">▲</button>
+                      <button onClick={() => moveExercise(i, 1)} disabled={i === w.exercises.length - 1} aria-label="下移" className="w-8 h-5 text-xs leading-none text-slate-400 disabled:opacity-20">▼</button>
+                    </div>
+                    <button onClick={() => toggleUnit(i)} className={`h-9 px-3 rounded-lg text-xs font-bold ${e.unit === 'lb' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-600'}`}>{e.unit === 'lb' ? 'LB' : 'KG'}</button>
                     <button onClick={() => removeExercise(i)} aria-label="移除動作" className="w-9 h-9 rounded-lg text-slate-300 text-lg">✕</button>
                   </div>
 
@@ -2251,7 +2500,22 @@
                     <button key={m} onClick={() => setMood(m)} className={`w-12 h-12 rounded-2xl text-2xl ${mood === m ? 'bg-blue-50 ring-2 ring-blue-500' : 'opacity-40'}`}>{m}</button>
                   ))}
                 </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <label className="block text-sm text-slate-500">強度 <span className="font-bold text-slate-900 tabular">{effort}</span>/10
+                    <input type="range" min="1" max="10" step="1" value={effort} onChange={ev => setEffort(Number(ev.target.value))} className="w-full mt-1" />
+                  </label>
+                  <label className="block text-sm text-slate-500">表現 <span className="font-bold text-slate-900 tabular">{performance}</span>/10
+                    <input type="range" min="1" max="10" step="1" value={performance} onChange={ev => setPerformance(Number(ev.target.value))} className="w-full mt-1" />
+                  </label>
+                </div>
                 <textarea value={notes} onChange={ev => setNotes(ev.target.value)} placeholder="備註（可留空）" className="w-full h-20 p-3 rounded-xl bg-slate-50 border border-slate-100 text-base outline-none resize-none" />
+                {w.exercises.length > 0 && onSaveRoutine && (
+                  routineSaved ? <div className="text-sm text-green-600 font-medium">✓ 已存為課表「{routineName.trim()}」</div> :
+                  <div className="flex gap-2">
+                    <input value={routineName} onChange={ev => setRoutineName(ev.target.value)} placeholder="另存為課表（例如 Push Day）" className="flex-1 min-w-0 h-11 px-3 rounded-xl bg-slate-50 border border-slate-100 text-sm outline-none" />
+                    <button onClick={saveRoutine} disabled={!routineName.trim()} className="h-11 px-4 rounded-xl bg-slate-100 text-sm font-bold text-slate-600 disabled:opacity-40">存課表</button>
+                  </div>
+                )}
                 <div className="flex gap-2">
                   <button onClick={() => setShowFinish(false)} className="h-13 px-5 py-3.5 rounded-2xl bg-slate-100 text-sm font-bold text-slate-600">繼續練</button>
                   <button onClick={save} className="flex-1 py-3.5 rounded-2xl bg-blue-600 text-white text-base font-bold active:scale-[0.98] transition-transform">儲存訓練</button>
@@ -2812,7 +3076,7 @@
           {initData && (
             <div className="flex gap-3">
               <button onClick={()=>setShowCopyModal(true)} className="flex-1 text-blue-500 font-bold text-sm py-2 bg-blue-50 rounded-2xl">📋 複製到其他日期</button>
-              <button onClick={()=>{ if (window.confirm('確定刪除此紀錄？刪除後無法復原。')) onDelete(initData.id); }} className="flex-1 text-red-400 font-bold text-sm py-2 bg-red-50 rounded-2xl">刪除此項目</button>
+              <button onClick={()=>{ if (window.confirm('確定刪除此紀錄？')) onDelete(initData.id); }} className="flex-1 text-red-400 font-bold text-sm py-2 bg-red-50 rounded-2xl">刪除此項目</button>
             </div>
           )}
 
@@ -2970,11 +3234,26 @@
       );
     };
 
-    const Settings = ({ user, handleAuth, setView, onKeyChanged, logs, onForceSync, onImport }) => {
+    const Settings = ({ user, handleAuth, setView, onKeyChanged, logs, body, routines, onForceSync, onImport }) => {
+       const [theme, setTheme] = React.useState(() => localStorage.getItem(THEME_KEY) || 'light');
+       const chooseTheme = (t) => { setTheme(t); localStorage.setItem(THEME_KEY, t); applyTheme(t); };
+       const exportCsv = async () => {
+         try {
+           const q = (v) => { const t = v == null ? '' : String(v); return /[",\n\r]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+           const head = ['日期', '類別', '項目', '開始', '結束', '分鐘', '狀態', '心情', '強度', '表現', '同行', '距離km', '游泳m', '總訓練量kg', '動作', '備註', '技術筆記'];
+           const rows = [...(logs || [])].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)).map(l => [
+             l.date, l.category, l.subcategory, l.startTime, l.endTime, l.durationMinutes, l.status === 'planned' ? '計劃' : '完成', l.mood, l.effort, l.performance,
+             (l.friends || []).join('、'), l.perf?.distanceKm, l.perf?.distanceM, Math.round(logVolume(l)) || '', gymSummary(l), l.notes, l.improvement,
+           ].map(q).join(','));
+           const name = `fittrack-${getLocalTodayString()}.csv`;
+           await shareOrDownload(new File(['\ufeff' + [head.join(','), ...rows].join('\r\n')], name, { type: 'text/csv' }), 'FitTrack CSV');
+           setBackupMsg(`✓ 已匯出 CSV（${rows.length} 條）`);
+         } catch (e) { if (e?.name !== 'AbortError') setBackupMsg('❌ 匯出失敗：' + (e.message || e)); }
+       };
        const [backupMsg, setBackupMsg] = React.useState('');
        const exportBackup = async () => {
          try {
-           const payload = JSON.stringify({ app: 'fittrack', version: 2, exportedAt: new Date().toISOString(), logs: logs || [] });
+           const payload = JSON.stringify({ app: 'fittrack', version: 3, exportedAt: new Date().toISOString(), logs: logs || [], body: body || [], routines: routines || [] });
            const name = `fittrack-backup-${getLocalTodayString()}.json`;
            const file = new File([payload], name, { type: 'application/json' });
            if (navigator.canShare && navigator.canShare({ files: [file] })) {
@@ -2993,7 +3272,7 @@
            const data = JSON.parse(await file.text());
            const arr = Array.isArray(data) ? data : data.logs;
            if (!Array.isArray(arr) || !arr.every(l => l && l.id && l.date)) throw new Error('檔案格式不正確');
-           await onImport(arr);
+           await onImport(arr, Array.isArray(data) ? null : data.body, Array.isArray(data) ? null : data.routines);
            setBackupMsg(`✓ 已匯入並合併 ${arr.length} 條紀錄`);
          } catch (e) { setBackupMsg('❌ 匯入失敗：' + (e.message || e)); }
        };
@@ -3082,11 +3361,21 @@
              {geminiKey && <div className="text-[10px] text-green-600 font-bold">✓ Key 已設定</div>}
            </div>
 
+           {/* Appearance */}
+           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 space-y-3">
+             <h3 className="font-bold text-slate-800">🌙 外觀</h3>
+             <div className="grid grid-cols-3 gap-2">
+               {[['light', '淺色'], ['dark', '深色'], ['auto', '跟系統']].map(([v, label]) => (
+                 <button key={v} onClick={() => chooseTheme(v)} aria-pressed={theme === v} className={`py-3 rounded-2xl text-sm font-bold ${theme === v ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>{label}</button>
+               ))}
+             </div>
+           </div>
+
            {/* Backup */}
            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 space-y-3">
              <div>
                <h3 className="font-bold text-slate-800 mb-1">💾 備份</h3>
-               <p className="text-xs text-slate-400">匯出所有紀錄（連相片）成檔案，換機或出事時可以還原。匯入會與現有紀錄合併，唔會覆蓋。</p>
+               <p className="text-xs text-slate-400">匯出所有紀錄（連相片、體重、課表）成檔案，換機或出事時可以還原。匯入會與現有紀錄合併，唔會覆蓋；備份入面有、但之後刪除咗嘅紀錄會還原返。</p>
              </div>
              <div className="flex gap-2">
                <button onClick={exportBackup} className="flex-1 py-3 rounded-2xl font-bold bg-slate-900 text-white active:scale-95 transition-transform">匯出備份</button>
@@ -3095,6 +3384,7 @@
                  <input type="file" accept="application/json,.json" className="hidden" onChange={e => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ''; }} />
                </label>
              </div>
+             <button onClick={exportCsv} className="w-full py-3 rounded-2xl font-bold bg-slate-100 text-slate-700 active:scale-95 transition-transform">匯出 CSV（放入 Notion / Sheets）</button>
              {backupMsg && <div className={`text-[11px] font-bold ${backupMsg.startsWith('✓') ? 'text-green-600' : 'text-red-600'}`}>{backupMsg}</div>}
            </div>
 
@@ -3285,6 +3575,17 @@
       const logsRef = useRef(logs);
       logsRef.current = logs;
       const userRef = useRef(null);
+      // Body weight + routines: small synced lists (same cloud doc as the logs)
+      const [body, setBody] = useState(() => readJson(BODY_KEY, []));
+      const [routines, setRoutines] = useState(() => readJson(ROUTINES_KEY, []));
+      const bodyRef = useRef(body); bodyRef.current = body;
+      const routinesRef = useRef(routines); routinesRef.current = routines;
+      const applyExtras = (b, r) => {
+        if (sigById(b) !== sigById(bodyRef.current)) { bodyRef.current = b; setBody(b); try { localStorage.setItem(BODY_KEY, JSON.stringify(b)); } catch {} }
+        if (sigById(r) !== sigById(routinesRef.current)) { routinesRef.current = r; setRoutines(r); try { localStorage.setItem(ROUTINES_KEY, JSON.stringify(r)); } catch {} }
+      };
+      const [undo, setUndo] = useState(null); // last deleted log, shown for a few seconds
+      const undoTimer = useRef(null);
       const photoStored = useRef(new Map()); // id -> dataUrl already written to IndexedDB
 
       // Write logs to local storage: slim logs → localStorage, photos → IndexedDB
@@ -3323,10 +3624,17 @@
         const cloud = snap.exists() ? snap.data() : {};
         const allDeleted = { ...(cloud.deleted || {}), ...deleted };
         const merged = mergeLogs(arr, cloud.logs || [], allDeleted); // local wins ties (keeps photo)
+        // Old tombstones are dropped so the doc doesn't grow forever
+        const cutoff = new Date(Date.now() - TOMBSTONE_DAYS * 864e5).toISOString();
+        Object.keys(allDeleted).forEach(id => { if (typeof allDeleted[id] === 'string' && allDeleted[id] < cutoff) delete allDeleted[id]; });
+        const bodyAll = mergeById(bodyRef.current, cloud.body);
+        const routinesAll = mergeById(routinesRef.current, cloud.routines);
         const { slim, photos } = splitPhotos(merged);
-        const size = JSON.stringify(slim).length;
+        const size = JSON.stringify(slim).length + JSON.stringify(bodyAll).length + JSON.stringify(routinesAll).length + JSON.stringify(allDeleted).length;
         if (size > 900000) throw new Error(`紀錄資料過大 (${Math.round(size/1024)}KB)，超出雲端 1MB 上限`);
-        await setDoc(ref, { logs: slim, deleted: allDeleted, updatedAt: new Date().toISOString() }, { merge: true });
+        // mergeFields replaces exactly these fields (so pruned tombstones really go away) and leaves any others alone
+        await setDoc(ref, { logs: slim, deleted: allDeleted, body: bodyAll, routines: routinesAll, updatedAt: new Date().toISOString() }, { mergeFields: ['logs', 'deleted', 'body', 'routines', 'updatedAt'] });
+        applyExtras(bodyAll, routinesAll);
         // photos: one small doc each, only if not uploaded yet
         const synced = new Set(readJson(PHOTO_SYNCED_KEY, []));
         let photoErr = null;
@@ -3391,8 +3699,12 @@
                   await persistLocal(merged);
                 }
                 // cloud is missing something we have (or has inline photos / no doc yet) → push
+                const bodyAll = mergeById(bodyRef.current, data.body);
+                const routinesAll = mergeById(routinesRef.current, data.routines);
+                applyExtras(bodyAll, routinesAll);
                 const cloudSlim = splitPhotos(cloudLogs);
-                if (sigOf(merged) !== sigOf(cloudLogs) || Object.keys(cloudSlim.photos).length || !docSnap.exists()) {
+                if (sigOf(merged) !== sigOf(cloudLogs) || Object.keys(cloudSlim.photos).length || !docSnap.exists()
+                    || sigById(bodyAll) !== sigById(data.body) || sigById(routinesAll) !== sigById(data.routines)) {
                   await pushCloud(merged, localDeleted);
                 }
                 setStatus('已連線');
@@ -3449,6 +3761,7 @@
               .slice(0, 7)
               .map(l => {
                   let logStr = `- ${l.date} [${l.category}]: ${l.subcategory} (${l.durationMinutes}min) [RPE:${l.effort||'N/A'}]`;
+                  if (gymSummary(l)) logStr += `\n  - Sets: ${gymSummary(l)}`;
                   if (l.notes) logStr += `\n  - Note: ${l.notes}`;
                   if (l.improvement) logStr += `\n  - Tech Note: ${l.improvement}`;
                   return logStr;
@@ -3486,6 +3799,7 @@
               - **CRITICAL**: Check if there are any [Tech Note] (技術筆記) from past [Category] history.
               - If the user has a plan today (e.g., Badminton), and there is a past [Tech Note] for Badminton (e.g., "Backhand weak"), you MUST remind them to focus on correcting that specific issue today.
               - If there is ALREADY a plan (Planned or Completed), focus on that! Give a specific tip for that exercise.
+              - For Gym, the "Sets" lines list weight×reps per exercise: when relevant, suggest a concrete next target (e.g. +2.5kg or +1 rep) for one exercise.
               - Keep it short (1-2 sentences).
               
               Part 2: Weekly Gap Analysis
@@ -3558,6 +3872,19 @@
         }
       };
 
+      // Save body weight / routines: stamp what changed, store locally, then sync
+      const updateExtras = async (kind, arr) => {
+        const ts = new Date().toISOString();
+        const old = new Map((kind === 'body' ? bodyRef.current : routinesRef.current).map(x => [x.id, x]));
+        const stamped = arr.map(x => { const o = old.get(x.id); return (!o || JSON.stringify({ ...o, _u: 0 }) !== JSON.stringify({ ...x, _u: 0 })) ? { ...x, _u: ts } : x; });
+        if (kind === 'body') { bodyRef.current = stamped; setBody(stamped); try { localStorage.setItem(BODY_KEY, JSON.stringify(stamped)); } catch {} }
+        else { routinesRef.current = stamped; setRoutines(stamped); try { localStorage.setItem(ROUTINES_KEY, JSON.stringify(stamped)); } catch {} }
+        if (userRef.current) {
+          try { await pushCloud(logsRef.current, readJson(DELETED_KEY, {})); setStatus('已連線'); }
+          catch (e) { console.error('Cloud sync failed:', e); setStatus(e.photoOnly ? '⚠️ 紀錄已同步，相片未同步（見設定）' : '⚠️ 同步失敗（已存本機）：' + (e.code || e.message)); }
+        }
+      };
+
       // Manual full sync from Settings. Returns { ok, msg } for display.
       const forceSync = async () => {
         if (!userRef.current) return { ok: false, msg: '未登入 Google' };
@@ -3582,9 +3909,19 @@
       };
 
       const handleDelete = (id) => {
+        const gone = logsRef.current.find(l => l.id === id);
+        if (gone) { setUndo(gone); clearTimeout(undoTimer.current); undoTimer.current = setTimeout(() => setUndo(null), 8000); }
         updateLogs(logs.filter(l => l.id !== id));
         setEditLog(null);
         setView('dashboard');
+      };
+
+      const handleUndo = () => {
+        if (!undo) return;
+        clearTimeout(undoTimer.current);
+        const { _u, ...log } = undo; // re-stamped by updateLogs, so it outranks its tombstone
+        if (!logsRef.current.some(l => l.id === log.id)) updateLogs([log, ...logsRef.current]);
+        setUndo(null);
       };
 
       const handleCopy = (sourceLog, dates) => {
@@ -3652,6 +3989,9 @@
           {view === 'workout' && (
             <WorkoutSession
               logs={logs}
+              routines={routines}
+              onSaveRoutine={(r) => updateExtras('routines', [...routinesRef.current.filter(x => x.id !== r.id), r])}
+              onDeleteRoutine={(id) => updateExtras('routines', routinesRef.current.map(x => x.id === id ? { id: x.id, name: x.name, del: true } : x))}
               onMinimize={() => setView('dashboard')}
               onDiscard={() => { localStorage.removeItem(ACTIVE_WORKOUT_KEY); setWorkoutActive(false); setView('dashboard'); }}
               onFinish={(log) => { localStorage.removeItem(ACTIVE_WORKOUT_KEY); setWorkoutActive(false); updateLogs([log, ...logsRef.current]); setView('dashboard'); }}
@@ -3672,12 +4012,25 @@
                 onRepeat={handleRepeat}
              />
           )}
-          {view === 'trends' && <Trends logs={logs} />}
+          {view === 'trends' && <Trends logs={logs} body={body} onBody={(arr) => updateExtras('body', arr)} />}
           {view === 'calendar' && <Calendar logs={logs} onEdit={(l)=>{setEditLog(l); setCalendarDate(null); setView('add');}} onAddForDate={(date)=>{setEditLog(null); setQuickCategory(null); setCalendarDate(date); setView('add');}} onWeekPlan={()=>setView('weekplanner')} />}
           {view === 'friends' && <FriendsView key={friendsKey} logs={logs} />}
           {view === 'add' && <Form onSave={handleSave} onCancel={()=>{setEditLog(null); setCalendarDate(null); setView('dashboard');}} onDelete={handleDelete} onCopy={handleCopy} initData={editLog} logs={logs} defaultDate={calendarDate} defaultCategory={quickCategory || (calendarDate ? null : 'Gym')} key={(editLog?.id || 'new') + (quickCategory || '')} />}
           {view === 'weekplanner' && <WeekPlanner onBatchSave={handleBatchSave} onCancel={()=>setView('dashboard')} />}
-          {view === 'settings' && <Settings user={user} handleAuth={handleAuth} setView={setView} onKeyChanged={() => { setAiAdvice(null); setAiLoading(false); }} logs={logs} onForceSync={forceSync} onImport={(arr) => updateLogs(mergeLogs(logsRef.current, arr, readJson(DELETED_KEY, {})))} />}
+          {view === 'settings' && <Settings user={user} handleAuth={handleAuth} setView={setView} onKeyChanged={() => { setAiAdvice(null); setAiLoading(false); }} logs={logs} body={body} routines={routines} onForceSync={forceSync} onImport={async (arr, b, r) => {
+              // No tombstone filter here: importing a backup is how deleted logs are brought back
+              // (anything that comes back is re-stamped by updateLogs so it outranks its tombstone).
+              const cur = new Set(logsRef.current.map(l => l.id));
+              await updateLogs(mergeLogs(logsRef.current, arr.map(l => cur.has(l.id) ? l : (({ _u, ...rest }) => rest)(l)), null));
+              if (Array.isArray(b) && b.length) await updateExtras('body', mergeById(bodyRef.current, b.filter(x => x && x.id && !x.del)));
+              if (Array.isArray(r) && r.length) await updateExtras('routines', mergeById(routinesRef.current, r.filter(x => x && x.id && !x.del)));
+            }} />}
+          {undo && (
+            <div className="fixed left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-sm bg-slate-900 text-white rounded-2xl shadow-lg px-4 py-3 flex items-center gap-3 animate-slide-up" style={{ bottom: 'calc(96px + env(safe-area-inset-bottom))' }} role="status">
+              <span className="flex-1 text-sm truncate">已刪除「{undo.subcategory || undo.category}」</span>
+              <button onClick={handleUndo} className="text-sm font-bold text-blue-300 px-2 py-1">復原</button>
+            </div>
+          )}
         </Layout>
       );
     };
@@ -3721,6 +4074,5 @@
       }
     })();
   </script>
-<script type="module" src="/index.tsx"></script>
 </body>
 </html>
