@@ -72,6 +72,11 @@
     .tracking-widest { letter-spacing: 0.01em !important; }
     .tabular { font-variant-numeric: tabular-nums; }
 
+    /* On-screen keyboard open (class set by the script at the bottom of this file):
+       hide the tab bar and add scroll room so the focused field can sit above the keyboard */
+    html.kb-focus nav { display: none !important; }
+    html.kb-focus .kb-pad::after { content: ''; display: block; height: 45vh; }
+
     .no-scrollbar::-webkit-scrollbar { display: none; }
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
@@ -632,7 +637,7 @@
             </button>
           </header>}
 
-          <main className="flex-1 overflow-y-auto custom-scrollbar relative">{children}</main>
+          <main className="flex-1 overflow-y-auto custom-scrollbar relative kb-pad">{children}</main>
 
           {workoutActive && (
             <button onClick={onStartWorkout} className="shrink-0 bg-slate-900 text-white px-5 py-3 flex items-center justify-between text-sm font-bold">
@@ -2394,7 +2399,7 @@
           </div>
 
           {/* Exercises */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 kb-pad">
             {w.exercises.length === 0 && (
               <div className="text-center pt-10 pb-2">
                 <div className="text-5xl mb-3">🏋️</div>
@@ -2558,7 +2563,8 @@
       });
 
       const [friendInput, setFriendInput] = useState('');
-      const [showFriendDropdown, setShowFriendDropdown] = useState(false);
+      const [showAllFriends, setShowAllFriends] = useState(false);
+      const [addingFriend, setAddingFriend] = useState(false);
       const [showPerf, setShowPerf] = useState(() => !!initData?.perf || (initData?.category ?? 'Gym') === 'Gym');
       React.useEffect(() => { if (data.category === 'Gym') setShowPerf(true); }, [data.category]);
       const [perf, setPerf] = useState(() => initData?.perf || { exercises: [], distanceKm: '', timeMin: '', heartRate: '', distanceM: '', laps: '' });
@@ -2717,6 +2723,13 @@
 
       const isPlanned = data.status === 'planned';
 
+      // Chips keep a stable order (most frequent first) so nothing jumps when tapped
+      const friendOrder = [...recentFriends, ...allFriends.filter(f => !recentFriends.includes(f))];
+      const visibleFriends = showAllFriends ? friendOrder : friendOrder.slice(0, 8);
+      const friendChips = [...visibleFriends, ...data.friends.filter(f => !visibleFriends.includes(f))];
+      const hiddenFriendCount = friendOrder.filter(f => !friendChips.includes(f)).length;
+      const toggleFriend = (f) => setData(d => ({ ...d, friends: d.friends.includes(f) ? d.friends.filter(x => x !== f) : [...d.friends, f] }));
+
       const addFriend = (name) => {
           const v = name.trim();
           if(v && !data.friends.includes(v)) {
@@ -2823,70 +2836,47 @@
                 <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
                     <label className="text-[10px] font-black text-slate-400 uppercase">同行夥伴</label>
                     
-                    {/* Frequent Friends Suggestions */}
-                    {recentFriends.length > 0 && (
-                        <div className="mb-3">
-                            <p className="text-[9px] text-slate-400 font-bold mb-2">常用好友</p>
-                            <div className="flex flex-wrap gap-2">
-                                {recentFriends.map(f => {
-                                    const isAdded = data.friends.includes(f);
-                                    if(isAdded) return null; // Don't show if already added
-                                    return (
-                                        <button 
-                                            key={f}
-                                            onClick={() => addFriend(f)}
-                                            className="px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-xs font-bold text-slate-600 border border-slate-100 active:scale-95 transition-all"
-                                        >
-                                            + {f}
-                                        </button>
-                                    )
-                                })}
-                            </div>
-                        </div>
-                    )}
-
-                    <div className="relative mt-2">
-                        <div className="flex gap-2">
-                            <input 
-                                type="text" 
-                                value={friendInput} 
-                                onChange={e=>setFriendInput(e.target.value)} 
-                                onFocus={() => setShowFriendDropdown(true)}
-                                onBlur={() => setTimeout(() => setShowFriendDropdown(false), 200)}
-                                placeholder="搜尋或輸入新名字..." 
-                                className="flex-1 p-3 bg-slate-50 rounded-xl text-sm text-slate-900 font-bold focus:ring-2 focus:ring-blue-500 outline-none" 
-                            />
-                            <button onClick={() => addFriend(friendInput)} className="bg-slate-900 text-white px-4 rounded-xl font-bold shadow-lg">+</button>
-                        </div>
-                        
-                        {showFriendDropdown && (
-                            <div className="absolute z-10 w-full mt-1 bg-white border border-slate-100 rounded-xl shadow-xl max-h-48 overflow-y-auto custom-scrollbar">
-                                {allFriends
-                                    .filter(f => f.toLowerCase().includes(friendInput.toLowerCase()) && !data.friends.includes(f))
-                                    .map(f => (
-                                    <div 
-                                        key={f} 
-                                        onClick={() => addFriend(f)}
-                                        className="p-3 hover:bg-slate-50 cursor-pointer text-sm font-bold text-slate-700 border-b border-slate-50 last:border-0"
-                                    >
-                                        {f}
-                                    </div>
-                                ))}
-                                {friendInput && !allFriends.some(f => f.toLowerCase() === friendInput.toLowerCase()) && (
-                                    <div 
-                                        onClick={() => addFriend(friendInput)}
-                                        className="p-3 hover:bg-slate-50 cursor-pointer text-sm font-bold text-blue-600 flex items-center gap-2"
-                                    >
-                                        <span>+ 新增 "{friendInput}"</span>
-                                    </div>
-                                )}
-                                {!friendInput && allFriends.filter(f => !data.friends.includes(f)).length === 0 && (
-                                    <div className="p-3 text-sm text-slate-400 text-center">無其他好友</div>
-                                )}
-                            </div>
+                    {/* Tap a name to add / remove. The keyboard only opens for a brand-new name. */}
+                    <div className="flex flex-wrap gap-2 mt-3">
+                        {friendChips.map(f => {
+                            const on = data.friends.includes(f);
+                            return (
+                                <button key={f} type="button" aria-pressed={on} onClick={() => toggleFriend(f)}
+                                    className={`min-h-[40px] px-3.5 py-2 rounded-xl text-sm font-bold border active:scale-95 transition-all ${on ? 'bg-blue-600 border-blue-600 text-white' : 'bg-slate-50 border-slate-100 text-slate-600'}`}>
+                                    {on ? '✓ ' : ''}{f}
+                                </button>
+                            );
+                        })}
+                        {hiddenFriendCount > 0 && (
+                            <button type="button" onClick={() => setShowAllFriends(true)} className="min-h-[40px] px-3.5 py-2 rounded-xl text-sm font-bold text-slate-400 border border-dashed border-slate-300">
+                                其他 {hiddenFriendCount} 位 ▾
+                            </button>
+                        )}
+                        {!addingFriend && (
+                            <button type="button" onClick={() => setAddingFriend(true)} className="min-h-[40px] px-3.5 py-2 rounded-xl text-sm font-bold text-blue-600 border border-dashed border-blue-300">
+                                ＋ 新名字
+                            </button>
                         )}
                     </div>
-                    <div className="flex flex-wrap gap-2 mt-3">{data.friends.map(f=><span key={f} onClick={()=>setData({...data, friends:data.friends.filter(x=>x!==f)})} className="bg-blue-600 text-white px-2 py-1 rounded-lg text-xs font-bold cursor-pointer shadow-md shadow-blue-200">{f} ✕</span>)}</div>
+                    {addingFriend && (
+                        <div className="flex gap-2 mt-3">
+                            <input
+                                type="text"
+                                autoFocus
+                                enterKeyHint="done"
+                                autoComplete="off"
+                                autoCorrect="off"
+                                value={friendInput}
+                                onChange={e=>setFriendInput(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addFriend(friendInput); setAddingFriend(false); } }}
+                                placeholder="輸入新名字"
+                                aria-label="新夥伴名字"
+                                className="flex-1 min-w-0 h-12 px-3 bg-slate-50 rounded-xl text-base text-slate-900 font-bold focus:ring-2 focus:ring-blue-500 outline-none"
+                            />
+                            <button type="button" onClick={() => { addFriend(friendInput); setAddingFriend(false); }} disabled={!friendInput.trim()} className="h-12 px-4 rounded-xl bg-blue-600 text-white text-sm font-bold disabled:opacity-40">加入</button>
+                            <button type="button" onClick={() => { setFriendInput(''); setAddingFriend(false); }} aria-label="取消" className="h-12 w-12 rounded-xl bg-slate-100 text-slate-500 font-bold">✕</button>
+                        </div>
+                    )}
                 </div>
 
                 {/* New: Notes and Improvements */}
@@ -4065,9 +4055,61 @@
           document.documentElement.style.setProperty('--app-height', window.innerHeight + 'px');
         }
       }
+      // ── Keep the focused field visible above the on-screen keyboard ──
+      // iOS doesn't scroll our inner scroll areas by itself, so we do it: whenever a text /
+      // number field gets focus (and again when the keyboard finishes opening) the field is
+      // moved into the part of the screen the keyboard doesn't cover.
+      var touch = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+      var fullH = window.innerHeight;
+      function isTextField(el) {
+        return !!el && (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && !/^(range|checkbox|radio|file|button|submit|date|time|color)$/.test(el.type)));
+      }
+      function scrollerOf(el) {
+        for (var p = el.parentElement; p; p = p.parentElement) {
+          var o = getComputedStyle(p).overflowY;
+          if (o === 'auto' || o === 'scroll') return p;
+        }
+        return null;
+      }
+      function reveal() {
+        var el = document.activeElement;
+        if (!isTextField(el)) return;
+        var sc = scrollerOf(el); if (!sc) return;
+        var vv = window.visualViewport;
+        var visTop = vv ? vv.offsetTop : 0;
+        var visBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+        // Some iOS home-screen versions don't report the keyboard at all, so on touch
+        // screens never assume more than the top ~58% of the screen is visible.
+        if (touch) visBottom = Math.min(visBottom, visTop + fullH * 0.58);
+        var r = el.getBoundingClientRect(), c = sc.getBoundingClientRect();
+        var top = Math.max(c.top, visTop), bottom = Math.min(c.bottom, visBottom);
+        if (bottom - top < 60) return;
+        if (r.top >= top + 8 && r.bottom <= bottom - 12) return; // already fully visible
+        sc.scrollTop += r.top - (top + (bottom - top) * 0.4 - r.height / 2);
+      }
+      var blurTimer = null;
+      document.addEventListener('focusin', function (e) {
+        var el = e.target;
+        if (!isTextField(el)) return;
+        clearTimeout(blurTimer);
+        if (touch) document.documentElement.classList.add('kb-focus');
+        // Number fields: select the old value so typing replaces it
+        if (el.tagName === 'INPUT' && /^(decimal|numeric)$/.test(el.getAttribute('inputmode') || '')) { try { el.select(); } catch (err) {} }
+        [60, 350, 700].forEach(function (ms) { setTimeout(reveal, ms); });
+      });
+      document.addEventListener('focusout', function () {
+        clearTimeout(blurTimer);
+        blurTimer = setTimeout(function () { if (!isTextField(document.activeElement)) document.documentElement.classList.remove('kb-focus'); }, 150);
+      });
+      function onViewport() {
+        if (!isTextField(document.activeElement)) fullH = Math.max(window.innerHeight, window.visualViewport ? window.visualViewport.height : 0);
+        update();
+        setTimeout(reveal, 50);
+      }
+
       update();
       if (window.visualViewport) {
-        window.visualViewport.addEventListener('resize', update);
+        window.visualViewport.addEventListener('resize', onViewport);
         window.visualViewport.addEventListener('scroll', update);
       } else {
         window.addEventListener('resize', update);
